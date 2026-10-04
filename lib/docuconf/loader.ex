@@ -48,7 +48,11 @@ defmodule Docuconf.Loader do
 
         warns =
           if raw != nil and var.secret and String.ends_with?(raw, "\n"),
-            do: warns ++ ["#{var.name} ends with a newline; secrets created with --from-file often do (values are never trimmed)"],
+            do:
+              warns ++
+                [
+                  "#{var.name} ends with a newline; secrets created with --from-file often do (values are never trimmed)"
+                ],
             else: warns
 
         case resolve(var, raw) do
@@ -65,7 +69,9 @@ defmodule Docuconf.Loader do
 
     warnings =
       warnings ++
-        for f <- d.files, f.deprecated, File.exists?(Files.resolve_path(f, env, opts[:file_root])) do
+        for f <- d.files,
+            f.deprecated,
+            File.exists?(Files.resolve_path(f, env, opts[:file_root])) do
           "file #{f.name} is deprecated: #{f.deprecated.message}"
         end
 
@@ -128,7 +134,11 @@ defmodule Docuconf.Loader do
       end
 
     if target do
-      bin = if byte_size(message) > @termination_limit, do: binary_part(message, 0, @termination_limit), else: message
+      bin =
+        if byte_size(message) > @termination_limit,
+          do: binary_part(message, 0, @termination_limit),
+          else: message
+
       _ = File.write(target, bin)
     end
 
@@ -168,7 +178,10 @@ defmodule Docuconf.Dotenv do
   end
 
   defp unquote_value("\"" <> rest) do
-    rest |> String.trim_trailing("\"") |> String.replace("\\n", "\n") |> String.replace("\\\"", "\"")
+    rest
+    |> String.trim_trailing("\"")
+    |> String.replace("\\n", "\n")
+    |> String.replace("\\\"", "\"")
   end
 
   defp unquote_value("'" <> rest), do: String.trim_trailing(rest, "'")

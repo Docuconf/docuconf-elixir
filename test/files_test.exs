@@ -52,7 +52,11 @@ defmodule Docuconf.FilesTest do
 
   test "valid files load with typed values", ctx do
     assert {:ok, env} = load(ctx)
-    assert env.routes.data == %{routes: [%{match: "/api", upstream: "https://api.internal", timeout: "5s"}]}
+
+    assert env.routes.data == %{
+             routes: [%{match: "/api", upstream: "https://api.internal", timeout: "5s"}]
+           }
+
     assert env.routes.path == p(ctx.root, "/etc/gateway/routes/routes.json")
     assert env.serving_tls.data.certfile == p(ctx.root, "/etc/gateway/tls/tls.crt")
     assert env.serving_tls.data.certificate == ctx.pki.leaf
@@ -64,7 +68,12 @@ defmodule Docuconf.FilesTest do
   end
 
   test "path_env overrides the path, and the file root still applies", ctx do
-    put(ctx.root, "/elsewhere/routes.json", ~s({"routes": [{"match": "/x", "upstream": "http://x"}]}))
+    put(
+      ctx.root,
+      "/elsewhere/routes.json",
+      ~s({"routes": [{"match": "/x", "upstream": "http://x"}]})
+    )
+
     assert {:ok, env} = load(ctx, %{"ROUTES_FILE" => "/elsewhere/routes.json"})
     assert env.routes.path == p(ctx.root, "/elsewhere/routes.json")
     assert [%{match: "/x"}] = env.routes.data.routes
@@ -83,7 +92,12 @@ defmodule Docuconf.FilesTest do
     put(ctx.root, "/etc/gateway/routes/routes.json", "{\"routes\": [")
     assert codes(load(ctx)) == [{"routes", :file_malformed}]
 
-    put(ctx.root, "/etc/gateway/routes/routes.json", ~s({"routes": [{"match": "api", "extra": 1}]}))
+    put(
+      ctx.root,
+      "/etc/gateway/routes/routes.json",
+      ~s({"routes": [{"match": "api", "extra": 1}]})
+    )
+
     {:error, e} = load(ctx)
     assert [%{code: :schema_mismatch, message: msg}] = e.violations
     assert msg =~ ~s(missing required property "upstream")
@@ -108,7 +122,14 @@ defmodule Docuconf.FilesTest do
   end
 
   test "an expiring certificate", ctx do
-    leaf = Certs.cert(key: ctx.pki.leaf_key, dns: @dns, issuer: {ctx.pki.ca, ctx.pki.ca_key}, not_after: DateTime.add(DateTime.utc_now(), 10 * 86_400))
+    leaf =
+      Certs.cert(
+        key: ctx.pki.leaf_key,
+        dns: @dns,
+        issuer: {ctx.pki.ca, ctx.pki.ca_key},
+        not_after: DateTime.add(DateTime.utc_now(), 10 * 86_400)
+      )
+
     tls(ctx, [leaf], ctx.pki.leaf_key)
     {:error, e} = load(ctx)
     assert [%{code: :certificate_expiring, message: msg}] = e.violations
@@ -117,25 +138,61 @@ defmodule Docuconf.FilesTest do
 
   test "an expired or not-yet-valid certificate", ctx do
     now = DateTime.utc_now()
-    expired = Certs.cert(key: ctx.pki.leaf_key, dns: @dns, issuer: {ctx.pki.ca, ctx.pki.ca_key}, not_before: DateTime.add(now, -100 * 86_400), not_after: DateTime.add(now, -86_400))
+
+    expired =
+      Certs.cert(
+        key: ctx.pki.leaf_key,
+        dns: @dns,
+        issuer: {ctx.pki.ca, ctx.pki.ca_key},
+        not_before: DateTime.add(now, -100 * 86_400),
+        not_after: DateTime.add(now, -86_400)
+      )
+
     tls(ctx, [expired], ctx.pki.leaf_key)
     assert codes(load(ctx)) == [{"serving-tls", :certificate_invalid}]
 
-    future = Certs.cert(key: ctx.pki.leaf_key, dns: @dns, issuer: {ctx.pki.ca, ctx.pki.ca_key}, not_before: DateTime.add(now, 86_400))
+    future =
+      Certs.cert(
+        key: ctx.pki.leaf_key,
+        dns: @dns,
+        issuer: {ctx.pki.ca, ctx.pki.ca_key},
+        not_before: DateTime.add(now, 86_400)
+      )
+
     tls(ctx, [future], ctx.pki.leaf_key)
     {:error, e} = load(ctx)
-    assert [%{code: :certificate_invalid, message: "certificate is not valid until " <> _}] = e.violations
+
+    assert [%{code: :certificate_invalid, message: "certificate is not valid until " <> _}] =
+             e.violations
   end
 
   test "a DNS name mismatch", ctx do
-    leaf = Certs.cert(key: ctx.pki.leaf_key, dns: ["gateway.internal"], issuer: {ctx.pki.ca, ctx.pki.ca_key})
+    leaf =
+      Certs.cert(
+        key: ctx.pki.leaf_key,
+        dns: ["gateway.internal"],
+        issuer: {ctx.pki.ca, ctx.pki.ca_key}
+      )
+
     tls(ctx, [leaf], ctx.pki.leaf_key)
     {:error, e} = load(ctx)
-    assert [%{code: :certificate_name_mismatch, message: "certificate does not cover api.example.com"}] = e.violations
+
+    assert [
+             %{
+               code: :certificate_name_mismatch,
+               message: "certificate does not cover api.example.com"
+             }
+           ] = e.violations
   end
 
   test "a wildcard covers one label", ctx do
-    leaf = Certs.cert(key: ctx.pki.leaf_key, dns: ["gateway.internal", "*.example.com"], issuer: {ctx.pki.ca, ctx.pki.ca_key})
+    leaf =
+      Certs.cert(
+        key: ctx.pki.leaf_key,
+        dns: ["gateway.internal", "*.example.com"],
+        issuer: {ctx.pki.ca, ctx.pki.ca_key}
+      )
+
     tls(ctx, [leaf], ctx.pki.leaf_key)
     assert {:ok, _} = load(ctx)
   end
@@ -149,19 +206,34 @@ defmodule Docuconf.FilesTest do
     rsa = Certs.ca_and_leaf(@dns, alg: :rsa)
     tls(ctx, [rsa.leaf], rsa.leaf_key, rsa.ca)
     assert {:ok, env} = load(ctx)
-    assert Docuconf.TLS.algorithm(:public_key.pkix_decode_cert(env.serving_tls.data.certificate, :otp)) == "RSA"
+
+    assert Docuconf.TLS.algorithm(
+             :public_key.pkix_decode_cert(env.serving_tls.data.certificate, :otp)
+           ) == "RSA"
 
     ed = Certs.ca_and_leaf(@dns, alg: :ed25519)
     tls(ctx, [ed.leaf], ed.leaf_key, ed.ca)
     {:error, e} = load(ctx)
-    assert [%{code: :certificate_invalid, message: "key algorithm Ed25519 is not one of ECDSA, RSA"}] = e.violations
+
+    assert [
+             %{
+               code: :certificate_invalid,
+               message: "key algorithm Ed25519 is not one of ECDSA, RSA"
+             }
+           ] = e.violations
   end
 
   test "the chain must lead to ca.crt", ctx do
     other = Certs.ca_and_leaf(@dns)
     tls(ctx, [ctx.pki.leaf], ctx.pki.leaf_key, other.ca)
     {:error, e} = load(ctx)
-    assert [%{code: :certificate_invalid, message: "tls.crt does not chain to a certificate in ca.crt"}] = e.violations
+
+    assert [
+             %{
+               code: :certificate_invalid,
+               message: "tls.crt does not chain to a certificate in ca.crt"
+             }
+           ] = e.violations
 
     # leaf -> intermediate -> root, with the intermediate in tls.crt.
     root_key = Certs.key(:ec)
@@ -222,7 +294,10 @@ defmodule Docuconf.FilesTest do
   describe "keystores" do
     setup ctx do
       openssl = System.find_executable("openssl")
-      if openssl == nil, do: {:ok, skip_ks: true}, else: {:ok, openssl: openssl, dir: p(ctx.root, "ks-src")}
+
+      if openssl == nil,
+        do: {:ok, skip_ks: true},
+        else: {:ok, openssl: openssl, dir: p(ctx.root, "ks-src")}
     end
 
     defp p12(ctx, password, extra) do
@@ -235,7 +310,20 @@ defmodule Docuconf.FilesTest do
       File.mkdir_p!(Path.dirname(out))
 
       {_, 0} =
-        System.cmd(ctx.openssl, ["pkcs12", "-export", "-in", crt, "-inkey", key, "-out", out, "-passout", "pass:" <> password] ++ extra,
+        System.cmd(
+          ctx.openssl,
+          [
+            "pkcs12",
+            "-export",
+            "-in",
+            crt,
+            "-inkey",
+            key,
+            "-out",
+            out,
+            "-passout",
+            "pass:" <> password
+          ] ++ extra,
           stderr_to_stdout: true
         )
 
@@ -266,7 +354,10 @@ defmodule Docuconf.FilesTest do
 
     test "garbage is keystore_unreadable", ctx do
       put(ctx.root, "/etc/gateway/partner/keystore.p12", "garbage")
-      assert codes(load(ctx, %{"KEYSTORE_PASSWORD" => "x"})) == [{"partner-keystore", :keystore_unreadable}]
+
+      assert codes(load(ctx, %{"KEYSTORE_PASSWORD" => "x"})) == [
+               {"partner-keystore", :keystore_unreadable}
+             ]
     end
 
     test "JKS keystores", ctx do
@@ -277,8 +368,12 @@ defmodule Docuconf.FilesTest do
         jks = Path.join(ctx.dir, "ks.jks")
 
         {_, 0} =
-          System.cmd(keytool, ~w(-importkeystore -noprompt -srckeystore #{src} -srcstoretype PKCS12 -srcstorepass changeit
-                                 -destkeystore #{jks} -deststoretype JKS -deststorepass changeit), stderr_to_stdout: true)
+          System.cmd(
+            keytool,
+            ~w(-importkeystore -noprompt -srckeystore #{src} -srcstoretype PKCS12 -srcstorepass changeit
+                                 -destkeystore #{jks} -deststoretype JKS -deststorepass changeit),
+            stderr_to_stdout: true
+          )
 
         content = File.read!(jks)
         assert Docuconf.Keystore.verify("jks", content, "changeit") == :ok

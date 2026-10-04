@@ -71,8 +71,12 @@ defmodule Docuconf.Value do
     if var.items == "int" do
       Enum.reduce_while(Enum.with_index(items), {:ok, []}, fn {item, i}, {:ok, acc} ->
         case parse_int(item) do
-          {:ok, n} -> {:cont, {:ok, [n | acc]}}
-          _ -> {:halt, {:error, :invalid_type, "item #{i + 1} (#{shown(var, item)}) is not an integer"}}
+          {:ok, n} ->
+            {:cont, {:ok, [n | acc]}}
+
+          _ ->
+            {:halt,
+             {:error, :invalid_type, "item #{i + 1} (#{shown(var, item)}) is not an integer"}}
         end
       end)
       |> case do
@@ -156,21 +160,41 @@ defmodule Docuconf.Value do
     len = if is_binary(v) and String.valid?(v), do: length(String.to_charlist(v)), else: 0
 
     cond do
-      not is_binary(v) -> {:error, :invalid_type, "#{shown} is not a string"}
-      var.min_length && len < var.min_length -> {:error, :out_of_range, "#{shown} is #{len} characters, shorter than minLength #{var.min_length}"}
-      var.max_length && len > var.max_length -> {:error, :out_of_range, "#{shown} is #{len} characters, longer than maxLength #{var.max_length}"}
-      var.pattern && not RE2.matches?(var.pattern, v) -> {:error, :pattern_mismatch, "#{shown} does not match pattern #{inspect(var.pattern)}"}
-      true -> :ok
+      not is_binary(v) ->
+        {:error, :invalid_type, "#{shown} is not a string"}
+
+      var.min_length && len < var.min_length ->
+        {:error, :out_of_range,
+         "#{shown} is #{len} characters, shorter than minLength #{var.min_length}"}
+
+      var.max_length && len > var.max_length ->
+        {:error, :out_of_range,
+         "#{shown} is #{len} characters, longer than maxLength #{var.max_length}"}
+
+      var.pattern && not RE2.matches?(var.pattern, v) ->
+        {:error, :pattern_mismatch, "#{shown} does not match pattern #{inspect(var.pattern)}"}
+
+      true ->
+        :ok
     end
   end
 
   defp constraint(%Var{type: t} = var, v, shown) when t in ["int", "float"] do
     cond do
-      t == "int" and not is_integer(v) -> {:error, :invalid_type, "#{shown} is not an integer"}
-      t == "float" and not is_number(v) -> {:error, :invalid_type, "#{shown} is not a number"}
-      var.min != nil and v < var.min -> {:error, :out_of_range, "#{shown} is below min #{var.min}"}
-      var.max != nil and v > var.max -> {:error, :out_of_range, "#{shown} is above max #{var.max}"}
-      true -> :ok
+      t == "int" and not is_integer(v) ->
+        {:error, :invalid_type, "#{shown} is not an integer"}
+
+      t == "float" and not is_number(v) ->
+        {:error, :invalid_type, "#{shown} is not a number"}
+
+      var.min != nil and v < var.min ->
+        {:error, :out_of_range, "#{shown} is below min #{var.min}"}
+
+      var.max != nil and v > var.max ->
+        {:error, :out_of_range, "#{shown} is above max #{var.max}"}
+
+      true ->
+        :ok
     end
   end
 
@@ -180,11 +204,20 @@ defmodule Docuconf.Value do
 
   defp constraint(%Var{type: "duration"} = var, v, shown) do
     cond do
-      not is_integer(v) -> {:error, :invalid_type, "#{shown} is not a duration"}
-      var.min != nil and v < var.min -> {:error, :out_of_range, "#{shown} is below min #{Duration.format(var.min)}"}
-      var.max != nil and v > var.max -> {:error, :out_of_range, "#{shown} is above max #{Duration.format(var.max)}"}
-      Duration.to_unit(v, var.unit) == :error -> {:error, :invalid_type, "#{shown} is not a whole number of #{var.unit}s"}
-      true -> :ok
+      not is_integer(v) ->
+        {:error, :invalid_type, "#{shown} is not a duration"}
+
+      var.min != nil and v < var.min ->
+        {:error, :out_of_range, "#{shown} is below min #{Duration.format(var.min)}"}
+
+      var.max != nil and v > var.max ->
+        {:error, :out_of_range, "#{shown} is above max #{Duration.format(var.max)}"}
+
+      Duration.to_unit(v, var.unit) == :error ->
+        {:error, :invalid_type, "#{shown} is not a whole number of #{var.unit}s"}
+
+      true ->
+        :ok
     end
   end
 
@@ -196,7 +229,8 @@ defmodule Docuconf.Value do
         {:error, :invalid_type, "#{shown} is not a URL with a scheme://"}
 
       var.schemes && scheme not in var.schemes ->
-        {:error, :invalid_scheme, "scheme #{inspect(if var.secret, do: "(redacted)", else: scheme)} is not one of #{Enum.join(var.schemes, ", ")}"}
+        {:error, :invalid_scheme,
+         "scheme #{inspect(if var.secret, do: "(redacted)", else: scheme)} is not one of #{Enum.join(var.schemes, ", ")}"}
 
       true ->
         :ok
@@ -204,7 +238,9 @@ defmodule Docuconf.Value do
   end
 
   defp constraint(%Var{type: "enum"} = var, v, shown) do
-    if v in var.values, do: :ok, else: {:error, :not_in_enum, "#{shown} is not one of #{Enum.join(var.values, ", ")}"}
+    if v in var.values,
+      do: :ok,
+      else: {:error, :not_in_enum, "#{shown} is not one of #{Enum.join(var.values, ", ")}"}
   end
 
   defp constraint(%Var{type: "list"} = var, v, _shown) do
@@ -212,10 +248,17 @@ defmodule Docuconf.Value do
     item_ok = if var.items == "int", do: &is_integer/1, else: &is_binary/1
 
     cond do
-      not is_list(v) or not Enum.all?(v, item_ok) -> {:error, :invalid_type, "is not a list of #{var.items}"}
-      var.min_items && n < var.min_items -> {:error, :too_few_items, "has #{n} items, fewer than minItems #{var.min_items}"}
-      var.max_items && n > var.max_items -> {:error, :too_many_items, "has #{n} items, more than maxItems #{var.max_items}"}
-      true -> :ok
+      not is_list(v) or not Enum.all?(v, item_ok) ->
+        {:error, :invalid_type, "is not a list of #{var.items}"}
+
+      var.min_items && n < var.min_items ->
+        {:error, :too_few_items, "has #{n} items, fewer than minItems #{var.min_items}"}
+
+      var.max_items && n > var.max_items ->
+        {:error, :too_many_items, "has #{n} items, more than maxItems #{var.max_items}"}
+
+      true ->
+        :ok
     end
   end
 
@@ -225,7 +268,11 @@ defmodule Docuconf.Value do
         :ok
 
       problems ->
-        detail = if var.secret, do: Enum.map(problems, &(&1 |> String.split(":") |> hd())), else: problems
+        detail =
+          if var.secret,
+            do: Enum.map(problems, &(&1 |> String.split(":") |> hd())),
+            else: problems
+
         {:error, :schema_mismatch, "does not match its schema: " <> Enum.join(detail, "; ")}
     end
   end
@@ -236,6 +283,8 @@ defmodule Docuconf.Value do
     v
   end
 
-  def to_public(%Var{type: "json", spec: spec}, v) when is_list(spec), do: JSONSchema.bind(v, spec)
+  def to_public(%Var{type: "json", spec: spec}, v) when is_list(spec),
+    do: JSONSchema.bind(v, spec)
+
   def to_public(_var, v), do: v
 end

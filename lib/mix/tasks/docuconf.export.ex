@@ -35,9 +35,15 @@ defmodule Mix.Tasks.Docuconf.Export do
 
     module =
       case args do
-        [m] -> Module.concat([m])
-        [] -> get_in(project, [:docuconf, :module]) || Mix.raise("usage: mix docuconf.export MyApp.Env")
-        _ -> Mix.raise("usage: mix docuconf.export MyApp.Env [--output contract.cue]")
+        [m] ->
+          Module.concat([m])
+
+        [] ->
+          get_in(project, [:docuconf, :module]) ||
+            Mix.raise("usage: mix docuconf.export MyApp.Env")
+
+        _ ->
+          Mix.raise("usage: mix docuconf.export MyApp.Env [--output contract.cue]")
       end
 
     Code.ensure_loaded(module)

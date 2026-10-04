@@ -128,8 +128,16 @@ defmodule Docuconf.Files do
             loaded(f, path, JSONSchema.bind(data, f.spec || %{}))
 
           problems ->
-            problems = if f.secret, do: Enum.map(problems, &(&1 |> String.split(":") |> hd())), else: problems
-            report.(:schema_mismatch, "#{path} does not match its schema: " <> Enum.join(problems, "; "))
+            problems =
+              if f.secret,
+                do: Enum.map(problems, &(&1 |> String.split(":") |> hd())),
+                else: problems
+
+            report.(
+              :schema_mismatch,
+              "#{path} does not match its schema: " <> Enum.join(problems, "; ")
+            )
+
             nil
         end
 
@@ -149,10 +157,12 @@ defmodule Docuconf.Files do
           {:file_malformed, "#{path} is not valid UTF-8 text"}
 
         f.min_length && len < f.min_length ->
-          {:out_of_range, "#{path}: content is #{len} characters, shorter than minLength #{f.min_length}"}
+          {:out_of_range,
+           "#{path}: content is #{len} characters, shorter than minLength #{f.min_length}"}
 
         f.max_length && len > f.max_length ->
-          {:out_of_range, "#{path}: content is #{len} characters, longer than maxLength #{f.max_length}"}
+          {:out_of_range,
+           "#{path}: content is #{len} characters, longer than maxLength #{f.max_length}"}
 
         f.pattern && not RE2.matches?(f.pattern, content) ->
           {:pattern_mismatch, "#{path}: content does not match pattern #{inspect(f.pattern)}"}
@@ -181,11 +191,19 @@ defmodule Docuconf.Files do
         nil
 
       length(good) < length(certs) ->
-        report.(:file_malformed, "#{path}: #{length(certs) - length(good)} certificate(s) cannot be parsed")
+        report.(
+          :file_malformed,
+          "#{path}: #{length(certs) - length(good)} certificate(s) cannot be parsed"
+        )
+
         nil
 
       length(good) < f.min_certificates ->
-        report.(:file_malformed, "#{path} holds #{length(good)} certificate(s), needs at least #{f.min_certificates}")
+        report.(
+          :file_malformed,
+          "#{path} holds #{length(good)} certificate(s), needs at least #{f.min_certificates}"
+        )
+
         nil
 
       true ->
@@ -206,7 +224,12 @@ defmodule Docuconf.Files do
 
       {:error, reason} ->
         via = if f.password_var, do: " with the password from #{f.password_var}", else: ""
-        report.(:keystore_unreadable, "#{path}: cannot open the #{f.format} keystore#{via} (#{reason})")
+
+        report.(
+          :keystore_unreadable,
+          "#{path}: cannot open the #{f.format} keystore#{via} (#{reason})"
+        )
+
         nil
     end
   end
@@ -240,5 +263,6 @@ defmodule Docuconf.Files do
   defp strip_bom(<<0xEF, 0xBB, 0xBF, rest::binary>>), do: rest
   defp strip_bom(s), do: s
 
-  defp loaded(f, path, data), do: %Docuconf.LoadedFile{name: f.name, type: f.type, path: path, data: data}
+  defp loaded(f, path, data),
+    do: %Docuconf.LoadedFile{name: f.name, type: f.type, path: path, data: data}
 end

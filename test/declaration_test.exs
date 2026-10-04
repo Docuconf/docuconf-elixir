@@ -87,14 +87,18 @@ defmodule Docuconf.DeclarationTest do
   test "feature-flag-looking names warn at compile time" do
     output =
       ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        compile(~s|env :enable_checkout, :boolean, description: "New checkout flow", default: false|)
+        compile(
+          ~s|env :enable_checkout, :boolean, description: "New checkout flow", default: false|
+        )
       end)
 
     assert output =~ "ENABLE_CHECKOUT looks like a feature flag"
 
     quiet =
       ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        compile(~s|env :ff_kill, :boolean, description: "Kill switch", default: false, flag_warning: false|)
+        compile(
+          ~s|env :ff_kill, :boolean, description: "Kill switch", default: false, flag_warning: false|
+        )
       end)
 
     refute quiet =~ "feature flag"

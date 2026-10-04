@@ -10,7 +10,13 @@ defmodule Docuconf.Test.SampleEnv do
 
   env :port, :integer, description: "HTTP listen port", default: 8080, min: 1, max: 65535
   env :gomemlimit, :integer, description: "Soft memory limit, in bytes", min: 1
-  env :sample_rate, :float, description: "Fraction of requests traced", default: 0.25, min: 0, max: 1
+
+  env :sample_rate, :float,
+    description: "Fraction of requests traced",
+    default: 0.25,
+    min: 0,
+    max: 1
+
   env :debug, :boolean, description: "Verbose request logging", default: false
 
   env :request_timeout, :duration,
@@ -19,7 +25,10 @@ defmodule Docuconf.Test.SampleEnv do
     min: "1s",
     max: "5m"
 
-  env :public_url, :url, description: "Externally visible base URL", required: true, schemes: ["https"]
+  env :public_url, :url,
+    description: "Externally visible base URL",
+    required: true,
+    schemes: ["https"]
 
   env :log_level, {:in, ~w(debug info warn error)},
     description: "Minimum log level emitted",
@@ -49,7 +58,9 @@ defmodule Docuconf.Test.SampleEnv do
     max_length: 32,
     pattern: ~r/^[a-z]{2}-[a-z]+-[0-9]$/
 
-  secret :keystore_password, :string, description: "Password for the partner keystore", min_length: 1
+  secret :keystore_password, :string,
+    description: "Password for the partner keystore",
+    min_length: 1
 
   config_file :routes,
     format: :json,

@@ -100,7 +100,11 @@ defmodule Docuconf.TLS do
         nil
 
       {:error, reason} ->
-        report.(:file_unreadable, "#{path} cannot be read (#{reason})#{Docuconf.Files.hint(reason)}")
+        report.(
+          :file_unreadable,
+          "#{path} cannot be read (#{reason})#{Docuconf.Files.hint(reason)}"
+        )
+
         nil
     end
   end
@@ -125,9 +129,14 @@ defmodule Docuconf.TLS do
 
   defp decode_key(pem) do
     case :public_key.pem_decode(pem) do
-      [{_, _, :not_encrypted} = entry | _] -> {:ok, :public_key.pem_entry_decode(entry)}
-      [{_, _, _} | _] -> {:error, "tls.key is encrypted; Kubernetes TLS secrets hold an unencrypted key"}
-      [] -> {:error, "tls.key holds no PEM private key"}
+      [{_, _, :not_encrypted} = entry | _] ->
+        {:ok, :public_key.pem_entry_decode(entry)}
+
+      [{_, _, _} | _] ->
+        {:error, "tls.key is encrypted; Kubernetes TLS secrets hold an unencrypted key"}
+
+      [] ->
+        {:error, "tls.key holds no PEM private key"}
     end
   rescue
     _ -> {:error, "tls.key is not a readable PEM private key"}
@@ -181,7 +190,10 @@ defmodule Docuconf.TLS do
 
     cond do
       now_s < DateTime.to_unix(from) ->
-        report.(:certificate_invalid, "certificate is not valid until #{DateTime.to_iso8601(from)}")
+        report.(
+          :certificate_invalid,
+          "certificate is not valid until #{DateTime.to_iso8601(from)}"
+        )
 
       now_s > DateTime.to_unix(to) ->
         report.(:certificate_invalid, "certificate expired at #{DateTime.to_iso8601(to)}")
@@ -213,8 +225,8 @@ defmodule Docuconf.TLS do
   end
 
   defp asn1_time({:generalTime, t}) do
-    <<y::binary-size(4), mo::binary-size(2), d::binary-size(2), h::binary-size(2), mi::binary-size(2),
-      s::binary-size(2), _::binary>> = to_string(t)
+    <<y::binary-size(4), mo::binary-size(2), d::binary-size(2), h::binary-size(2),
+      mi::binary-size(2), s::binary-size(2), _::binary>> = to_string(t)
 
     [y, mo, d, h, mi, s] = Enum.map([y, mo, d, h, mi, s], &String.to_integer/1)
     DateTime.new!(Date.new!(y, mo, d), Time.new!(h, mi, s), "Etc/UTC")
@@ -226,7 +238,8 @@ defmodule Docuconf.TLS do
     # The HTTPS match fun accepts a wildcard in the leftmost label only.
     match = [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]
 
-    for name <- names, not :public_key.pkix_verify_hostname(leaf, [dns_id: String.to_charlist(name)], match) do
+    for name <- names,
+        not :public_key.pkix_verify_hostname(leaf, [dns_id: String.to_charlist(name)], match) do
       report.(:certificate_name_mismatch, "certificate does not cover #{name}")
     end
   end
@@ -247,7 +260,13 @@ defmodule Docuconf.TLS do
 
   defp check_algorithm(%FileInput{key_algorithms: algs}, otp, report) do
     alg = algorithm(otp)
-    unless alg in algs, do: report.(:certificate_invalid, "key algorithm #{alg} is not one of #{Enum.join(algs, ", ")}")
+
+    unless alg in algs,
+      do:
+        report.(
+          :certificate_invalid,
+          "key algorithm #{alg} is not one of #{Enum.join(algs, ", ")}"
+        )
   end
 
   # tls.crt holds the leaf first, then any intermediates. The path given to
@@ -265,12 +284,15 @@ defmodule Docuconf.TLS do
         end
       end)
 
-    unless chains?, do: report.(:certificate_invalid, "tls.crt does not chain to a certificate in ca.crt")
+    unless chains?,
+      do: report.(:certificate_invalid, "tls.crt does not chain to a certificate in ca.crt")
   end
 
   # Validity is reported on its own (certificate_invalid / _expiring), so an
   # expired certificate does not also read as a broken chain.
-  defp verify(_cert, {:bad_cert, reason}, state) when reason in [:cert_expired], do: {:valid, state}
+  defp verify(_cert, {:bad_cert, reason}, state) when reason in [:cert_expired],
+    do: {:valid, state}
+
   defp verify(_cert, {:bad_cert, reason}, _state), do: {:fail, reason}
   defp verify(_cert, {:extension, _}, state), do: {:unknown, state}
   defp verify(_cert, _event, state), do: {:valid, state}

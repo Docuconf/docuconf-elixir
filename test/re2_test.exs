@@ -10,7 +10,19 @@ defmodule Docuconf.RE2Test do
   end
 
   test "rejects PCRE-only features" do
-    for p <- ["a(?=b)", "a(?!b)", "(?<=a)b", "(?<!a)b", "(a)\\1", "(?<n>a)\\k<n>", "(?>a)", "a*+", "a++", "(?R)", "(?(1)a|b)"] do
+    for p <- [
+          "a(?=b)",
+          "a(?!b)",
+          "(?<=a)b",
+          "(?<!a)b",
+          "(a)\\1",
+          "(?<n>a)\\k<n>",
+          "(?>a)",
+          "a*+",
+          "a++",
+          "(?R)",
+          "(?(1)a|b)"
+        ] do
       assert RE2.non_re2_feature(p) != nil, p
       assert {:error, _} = RE2.compile(p)
     end

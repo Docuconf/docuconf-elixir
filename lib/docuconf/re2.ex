@@ -53,7 +53,10 @@ defmodule Docuconf.RE2 do
 
   defp scan("[" <> rest, false, _prev) do
     rest = String.replace_prefix(rest, "^", "")
-    rest = if String.starts_with?(rest, "]"), do: binary_part(rest, 1, byte_size(rest) - 1), else: rest
+
+    rest =
+      if String.starts_with?(rest, "]"), do: binary_part(rest, 1, byte_size(rest) - 1), else: rest
+
     scan(rest, true, :atom)
   end
 

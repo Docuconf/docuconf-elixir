@@ -33,17 +33,20 @@ defmodule Docuconf.Test.Certs do
     exts =
       Enum.reject(
         [
-          opts[:dns] && {:Extension, {2, 5, 29, 17}, false, Enum.map(opts[:dns], &{:dNSName, String.to_charlist(&1)})},
-          opts[:ca] && {:Extension, {2, 5, 29, 19}, true, {:BasicConstraints, true, :asn1_NOVALUE}},
+          opts[:dns] &&
+            {:Extension, {2, 5, 29, 17}, false,
+             Enum.map(opts[:dns], &{:dNSName, String.to_charlist(&1)})},
+          opts[:ca] &&
+            {:Extension, {2, 5, 29, 19}, true, {:BasicConstraints, true, :asn1_NOVALUE}},
           opts[:ca] && {:Extension, {2, 5, 29, 15}, true, [:keyCertSign, :cRLSign]}
         ],
         &(&1 in [nil, false])
       )
 
     tbs =
-      {:OTPTBSCertificate, :v3, Keyword.get(opts, :serial, :rand.uniform(1_000_000_000)), sig_alg(signing_key),
-       issuer_name, {:Validity, time(not_before), time(not_after)}, subject, spki(key), :asn1_NOVALUE,
-       :asn1_NOVALUE, if(exts == [], do: :asn1_NOVALUE, else: exts)}
+      {:OTPTBSCertificate, :v3, Keyword.get(opts, :serial, :rand.uniform(1_000_000_000)),
+       sig_alg(signing_key), issuer_name, {:Validity, time(not_before), time(not_after)}, subject,
+       spki(key), :asn1_NOVALUE, :asn1_NOVALUE, if(exts == [], do: :asn1_NOVALUE, else: exts)}
 
     :public_key.pkix_sign(tbs, signing_key)
   end
@@ -64,15 +67,22 @@ defmodule Docuconf.Test.Certs do
     do: {:SignatureAlgorithm, {1, 2, 840, 10045, 4, 3, 2}, :asn1_NOVALUE}
 
   defp spki({:RSAPrivateKey, _, n, e, _, _, _, _, _, _, _}),
-    do: {:OTPSubjectPublicKeyInfo, {:PublicKeyAlgorithm, {1, 2, 840, 113_549, 1, 1, 1}, :NULL}, {:RSAPublicKey, n, e}}
+    do:
+      {:OTPSubjectPublicKeyInfo, {:PublicKeyAlgorithm, {1, 2, 840, 113_549, 1, 1, 1}, :NULL},
+       {:RSAPublicKey, n, e}}
 
   defp spki({:ECPrivateKey, _, _, {:namedCurve, {1, 3, 101, 112}}, pub, _}),
-    do: {:OTPSubjectPublicKeyInfo, {:PublicKeyAlgorithm, {1, 3, 101, 112}, :asn1_NOVALUE}, {:ECPoint, pub}}
+    do:
+      {:OTPSubjectPublicKeyInfo, {:PublicKeyAlgorithm, {1, 3, 101, 112}, :asn1_NOVALUE},
+       {:ECPoint, pub}}
 
   defp spki({:ECPrivateKey, _, _, curve, pub, _}),
-    do: {:OTPSubjectPublicKeyInfo, {:PublicKeyAlgorithm, {1, 2, 840, 10045, 2, 1}, curve}, {:ECPoint, pub}}
+    do:
+      {:OTPSubjectPublicKeyInfo, {:PublicKeyAlgorithm, {1, 2, 840, 10045, 2, 1}, curve},
+       {:ECPoint, pub}}
 
-  def cert_pem(ders), do: :public_key.pem_encode(Enum.map(List.wrap(ders), &{:Certificate, &1, :not_encrypted}))
+  def cert_pem(ders),
+    do: :public_key.pem_encode(Enum.map(List.wrap(ders), &{:Certificate, &1, :not_encrypted}))
 
   def key_pem({:RSAPrivateKey, _, _, _, _, _, _, _, _, _, _} = k),
     do: :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, k)])

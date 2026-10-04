@@ -41,9 +41,26 @@ defmodule Docuconf.ExportTest do
     on_exit(fn -> Mix.shell(Mix.Shell.IO) end)
     dir = tmp_dir()
     out = Path.join(dir, "contract.cue")
-    Mix.Tasks.Docuconf.Export.run(["Docuconf.Test.SampleEnv", "--output", out, "--app-version", "9.9.9"])
+
+    Mix.Tasks.Docuconf.Export.run([
+      "Docuconf.Test.SampleEnv",
+      "--output",
+      out,
+      "--app-version",
+      "9.9.9"
+    ])
+
     assert File.read!(out) =~ ~s(appVersion: "9.9.9")
-    Mix.Tasks.Docuconf.Export.run(["Docuconf.Test.SampleEnv", "--output", out, "--app-version", "9.9.9", "--check"])
+
+    Mix.Tasks.Docuconf.Export.run([
+      "Docuconf.Test.SampleEnv",
+      "--output",
+      out,
+      "--app-version",
+      "9.9.9",
+      "--check"
+    ])
+
     File.write!(out, "stale")
 
     assert_raise Mix.Error, fn ->
@@ -56,14 +73,21 @@ defmodule Docuconf.ExportTest do
   # used. Skipped when cue or the spec is absent, unless DOCUCONF_REQUIRE_VET=1.
   describe "cue vet" do
     setup do
-      spec = System.get_env("DOCUCONF_SPEC_CUE") || Path.expand("../../docuconf-go/spec/cue", __DIR__)
+      spec =
+        System.get_env("DOCUCONF_SPEC_CUE") || Path.expand("../../docuconf-go/spec/cue", __DIR__)
+
       cue = System.find_executable("cue") || existing(Path.expand("~/go/bin/cue"))
       ok? = cue != nil and File.dir?(Path.join(spec, "contract"))
 
       cond do
-        ok? -> {:ok, cue: cue, spec: spec}
-        System.get_env("DOCUCONF_REQUIRE_VET") == "1" -> flunk("cue or the meta-schema (#{spec}) is missing")
-        true -> :ok
+        ok? ->
+          {:ok, cue: cue, spec: spec}
+
+        System.get_env("DOCUCONF_REQUIRE_VET") == "1" ->
+          flunk("cue or the meta-schema (#{spec}) is missing")
+
+        true ->
+          :ok
       end
     end
 

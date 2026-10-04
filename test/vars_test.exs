@@ -5,7 +5,12 @@ defmodule Docuconf.VarsTest do
     use Docuconf, name: "orders"
 
     env :port, :integer, description: "HTTP listen port", default: 4000, min: 1, max: 65535
-    secret :database_url, :url, description: "Primary database", required: true, schemes: ["postgres", "ecto"]
+
+    secret :database_url, :url,
+      description: "Primary database",
+      required: true,
+      schemes: ["postgres", "ecto"]
+
     secret :api_token, :string, description: "Partner API token", min_length: 8, pattern: "^tok_"
     env :sample_rate, :float, description: "Trace sampling", default: 0.5, min: 0, max: 1
     env :debug, :boolean, description: "Verbose logging", default: false
@@ -14,7 +19,11 @@ defmodule Docuconf.VarsTest do
     env :level, {:in, [:debug, :info]}, description: "Log level", default: :info
     env :origins, {:list, :string}, description: "CORS origins", min_items: 1, max_items: 2
     env :ports, {:list, :integer}, description: "Worker ports", separator: ";"
-    env :limits, :json, description: "Rate limits", schema: [per_minute: [type: :pos_integer, required: true]]
+
+    env :limits, :json,
+      description: "Rate limits",
+      schema: [per_minute: [type: :pos_integer, required: true]]
+
     env :region, :string, description: "Cloud region", pattern: "^[a-z]{2}-"
     env :motd, :string, description: "Message of the day"
     env :legacy, :string, description: "Old setting", deprecated: "use MOTD"
@@ -63,6 +72,7 @@ defmodule Docuconf.VarsTest do
 
   test "empty string is unset for non-string types" do
     assert {:ok, %Env{port: 4000, debug: false}} = load(%{"PORT" => "", "DEBUG" => ""})
+
     assert codes(Env.load(env: %{"DATABASE_URL" => ""}, termination_log: false, warn: false)) ==
              [{"DATABASE_URL", :missing_required}]
   end
@@ -150,7 +160,11 @@ defmodule Docuconf.VarsTest do
 
     e =
       assert_raise Docuconf.ValidationError, fn ->
-        Env.load!(env: %{"PORT" => "x", "API_TOKEN" => "nope-secret"}, termination_log: log, warn: false)
+        Env.load!(
+          env: %{"PORT" => "x", "API_TOKEN" => "nope-secret"},
+          termination_log: log,
+          warn: false
+        )
       end
 
     assert length(e.violations) == 3
@@ -163,7 +177,10 @@ defmodule Docuconf.VarsTest do
   test "deprecated variables and secrets ending in a newline warn" do
     out =
       ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        Env.load(env: Map.merge(@base, %{"LEGACY" => "x", "API_TOKEN" => "tok_123456\n"}), termination_log: false)
+        Env.load(
+          env: Map.merge(@base, %{"LEGACY" => "x", "API_TOKEN" => "tok_123456\n"}),
+          termination_log: false
+        )
       end)
 
     assert out =~ "LEGACY is deprecated: use MOTD"
@@ -175,7 +192,14 @@ defmodule Docuconf.VarsTest do
     path = Path.join(System.tmp_dir!(), "docuconf-#{System.unique_integer([:positive])}.env")
     File.write!(path, "# dev\nexport PORT=5000\nMOTD=\"hello\\nworld\"\nREGION='eu-west'\n")
 
-    assert {:ok, env} = Env.load(env: Map.merge(@base, %{"REGION" => "us-east"}), dotenv: path, termination_log: false, warn: false)
+    assert {:ok, env} =
+             Env.load(
+               env: Map.merge(@base, %{"REGION" => "us-east"}),
+               dotenv: path,
+               termination_log: false,
+               warn: false
+             )
+
     assert env.port == 5000
     assert env.motd == "hello\nworld"
     assert env.region == "us-east"

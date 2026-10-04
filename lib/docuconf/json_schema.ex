@@ -66,7 +66,8 @@ defmodule Docuconf.JSONSchema do
     e in ArgumentError -> {:error, Exception.message(e)}
   end
 
-  def from(other), do: {:error, "schema must be a JSON Schema map or a keyword spec, got: #{inspect(other)}"}
+  def from(other),
+    do: {:error, "schema must be a JSON Schema map or a keyword spec, got: #{inspect(other)}"}
 
   defp stringify(%{} = m) do
     Map.new(m, fn {k, v} -> {to_string(k), stringify(v)} end)
@@ -124,7 +125,10 @@ defmodule Docuconf.JSONSchema do
   defp type_schema(:map), do: %{"type" => "object"}
   defp type_schema({:map, spec}), do: object_schema(spec)
   defp type_schema({:list, t}), do: %{"type" => "array", "items" => type_schema(t)}
-  defp type_schema({:in, values}) when is_list(values), do: %{"enum" => Enum.map(values, &stringify/1)}
+
+  defp type_schema({:in, values}) when is_list(values),
+    do: %{"enum" => Enum.map(values, &stringify/1)}
+
   defp type_schema(:any), do: %{}
   defp type_schema(other), do: raise(ArgumentError, "unsupported spec type #{inspect(other)}")
 
@@ -179,7 +183,10 @@ defmodule Docuconf.JSONSchema do
 
   defp check_type(v, %{"type" => t}, p) do
     types = List.wrap(t)
-    if Enum.any?(types, &type?(v, &1)), do: [], else: ["#{p}: expected #{Enum.join(types, " or ")}, got #{kind(v)}"]
+
+    if Enum.any?(types, &type?(v, &1)),
+      do: [],
+      else: ["#{p}: expected #{Enum.join(types, " or ")}, got #{kind(v)}"]
   end
 
   defp check_type(_, _, _), do: []
@@ -203,7 +210,9 @@ defmodule Docuconf.JSONSchema do
   defp kind(_), do: "unknown"
 
   defp check_enum(v, %{"enum" => vals}, p) do
-    if Enum.any?(vals, &json_equal?(&1, v)), do: [], else: ["#{p}: must be one of #{JSON.encode!(vals)}"]
+    if Enum.any?(vals, &json_equal?(&1, v)),
+      do: [],
+      else: ["#{p}: must be one of #{JSON.encode!(vals)}"]
   end
 
   defp check_enum(_, _, _), do: []
@@ -222,7 +231,9 @@ defmodule Docuconf.JSONSchema do
     required = Map.get(s, "required", [])
 
     missing =
-      for r <- required, not Map.has_key?(v, r), do: "#{p}: missing required property #{inspect(r)}"
+      for r <- required,
+          not Map.has_key?(v, r),
+          do: "#{p}: missing required property #{inspect(r)}"
 
     inner =
       Enum.flat_map(Enum.sort(v), fn {k, val} ->
@@ -307,8 +318,13 @@ defmodule Docuconf.JSONSchema do
 
         pattern ->
           case RE2.compile(pattern) do
-            {:ok, re} -> if RE2.matches?(re, v), do: [], else: ["#{p}: does not match pattern #{inspect(pattern)}"]
-            {:error, msg} -> ["#{p}: schema pattern #{inspect(pattern)} #{msg}"]
+            {:ok, re} ->
+              if RE2.matches?(re, v),
+                do: [],
+                else: ["#{p}: does not match pattern #{inspect(pattern)}"]
+
+            {:error, msg} ->
+              ["#{p}: schema pattern #{inspect(pattern)} #{msg}"]
           end
       end
 
@@ -322,8 +338,13 @@ defmodule Docuconf.JSONSchema do
 
     any =
       case s["anyOf"] do
-        nil -> []
-        subs -> if Enum.any?(subs, &(check(v, &1, p) == [])), do: [], else: ["#{p}: matches none of anyOf"]
+        nil ->
+          []
+
+        subs ->
+          if Enum.any?(subs, &(check(v, &1, p) == [])),
+            do: [],
+            else: ["#{p}: matches none of anyOf"]
       end
 
     one =
@@ -340,8 +361,11 @@ defmodule Docuconf.JSONSchema do
 
     neg =
       case s["not"] do
-        nil -> []
-        sub -> if check(v, sub, p) == [], do: ["#{p}: must not match the \"not\" schema"], else: []
+        nil ->
+          []
+
+        sub ->
+          if check(v, sub, p) == [], do: ["#{p}: must not match the \"not\" schema"], else: []
       end
 
     all ++ any ++ one ++ neg

@@ -47,31 +47,39 @@ defmodule Docuconf.CUE do
 
   @doc false
   def var_fields(%Var{} = v) do
-    [
-      {"type", v.type},
-      {"description", v.description},
-      v.required && {"required", true},
-      v.secret && {"secret", true},
-      v.group && {"group", v.group},
-      v.examples && {"examples", v.examples},
-      v.config_key && {"configKey", v.config_key}
-    ] ++
-      type_fields(v) ++
-      [
-        v.has_default && not v.secret && {"default", export_default(v)},
-        v.deprecated && {"deprecated", deprecated(v.deprecated)}
-      ]
+    ([
+       {"type", v.type},
+       {"description", v.description},
+       v.required && {"required", true},
+       v.secret && {"secret", true},
+       v.group && {"group", v.group},
+       v.examples && {"examples", v.examples},
+       v.config_key && {"configKey", v.config_key}
+     ] ++
+       type_fields(v) ++
+       [
+         v.has_default && not v.secret && {"default", export_default(v)},
+         v.deprecated && {"deprecated", deprecated(v.deprecated)}
+       ])
     |> Enum.filter(& &1)
   end
 
   defp type_fields(%Var{type: "string"} = v),
-    do: [v.min_length && {"minLength", v.min_length}, v.max_length && {"maxLength", v.max_length}, v.pattern && {"pattern", v.pattern}]
+    do: [
+      v.min_length && {"minLength", v.min_length},
+      v.max_length && {"maxLength", v.max_length},
+      v.pattern && {"pattern", v.pattern}
+    ]
 
   defp type_fields(%Var{type: t} = v) when t in ["int", "float"],
     do: [v.min != nil && {"min", v.min}, v.max != nil && {"max", v.max}]
 
   defp type_fields(%Var{type: "duration"} = v),
-    do: [{"encoding", "go"}, v.min && {"min", Duration.format(v.min)}, v.max && {"max", Duration.format(v.max)}]
+    do: [
+      {"encoding", "go"},
+      v.min && {"min", Duration.format(v.min)},
+      v.max && {"max", Duration.format(v.max)}
+    ]
 
   defp type_fields(%Var{type: "url"} = v), do: [v.schemes && {"schemes", v.schemes}]
   defp type_fields(%Var{type: "enum"} = v), do: [{"values", v.values}]
@@ -92,25 +100,29 @@ defmodule Docuconf.CUE do
   defp export_default(%Var{default: d}), do: d
 
   defp deprecated(%{message: m} = d) do
-    {:struct, Enum.filter([{"message", m}, d[:replaced_by] && {"replacedBy", to_string(d[:replaced_by])}], & &1)}
+    {:struct,
+     Enum.filter(
+       [{"message", m}, d[:replaced_by] && {"replacedBy", to_string(d[:replaced_by])}],
+       & &1
+     )}
   end
 
   @doc false
   def file_fields(%FileInput{} = f) do
-    [
-      {"type", f.type},
-      f.type in ["config", "keystore"] && {"format", f.format},
-      {"description", f.description},
-      f.required && {"required", true},
-      f.secret && {"secret", true},
-      f.group && {"group", f.group},
-      {"path", f.path},
-      f.path_env && {"pathEnv", f.path_env},
-      f.reload != "restart" && {"reload", f.reload},
-      f.max_size && {"maxSize", f.max_size}
-    ] ++
-      file_type_fields(f) ++
-      [f.deprecated && {"deprecated", deprecated(f.deprecated)}]
+    ([
+       {"type", f.type},
+       f.type in ["config", "keystore"] && {"format", f.format},
+       {"description", f.description},
+       f.required && {"required", true},
+       f.secret && {"secret", true},
+       f.group && {"group", f.group},
+       {"path", f.path},
+       f.path_env && {"pathEnv", f.path_env},
+       f.reload != "restart" && {"reload", f.reload},
+       f.max_size && {"maxSize", f.max_size}
+     ] ++
+       file_type_fields(f) ++
+       [f.deprecated && {"deprecated", deprecated(f.deprecated)}])
     |> Enum.filter(& &1)
   end
 
@@ -127,10 +139,15 @@ defmodule Docuconf.CUE do
   defp file_type_fields(%FileInput{type: "caBundle"} = f),
     do: [f.min_certificates != 1 && {"minCertificates", f.min_certificates}]
 
-  defp file_type_fields(%FileInput{type: "keystore"} = f), do: [f.password_var && {"passwordVar", f.password_var}]
+  defp file_type_fields(%FileInput{type: "keystore"} = f),
+    do: [f.password_var && {"passwordVar", f.password_var}]
 
   defp file_type_fields(%FileInput{type: "text"} = f),
-    do: [f.pattern && {"pattern", f.pattern}, f.min_length && {"minLength", f.min_length}, f.max_length && {"maxLength", f.max_length}]
+    do: [
+      f.pattern && {"pattern", f.pattern},
+      f.min_length && {"minLength", f.min_length},
+      f.max_length && {"maxLength", f.max_length}
+    ]
 
   defp file_type_fields(_), do: []
 
@@ -145,7 +162,8 @@ defmodule Docuconf.CUE do
     ["{\n", inner, String.duplicate("\t", ind), "}"]
   end
 
-  def value(%{} = m, ind), do: value({:struct, m |> Enum.map(fn {k, v} -> {to_string(k), v} end) |> Enum.sort()}, ind)
+  def value(%{} = m, ind),
+    do: value({:struct, m |> Enum.map(fn {k, v} -> {to_string(k), v} end) |> Enum.sort()}, ind)
 
   def value([], _ind), do: "[]"
 
@@ -176,12 +194,17 @@ defmodule Docuconf.CUE do
   defp float(f) do
     # Shortest round-trip form; CUE wants a digit after the point.
     s = Float.to_string(f)
-    if String.contains?(s, "e") and not String.contains?(s, "."), do: String.replace(s, "e", ".0e"), else: s
+
+    if String.contains?(s, "e") and not String.contains?(s, "."),
+      do: String.replace(s, "e", ".0e"),
+      else: s
   end
 
   @keywords ~w(package import for in if let true false null _ div mod quo rem)
 
   defp label(k) do
-    if Regex.match?(~r/^[A-Za-z][A-Za-z0-9_]*\z/, k) and k not in @keywords, do: k, else: string(k)
+    if Regex.match?(~r/^[A-Za-z][A-Za-z0-9_]*\z/, k) and k not in @keywords,
+      do: k,
+      else: string(k)
   end
 end

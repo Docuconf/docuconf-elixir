@@ -81,7 +81,19 @@ defmodule Docuconf.Declaration do
         }
   defstruct [:name, :app_version, vars: [], files: [], warnings: []]
 
-  @common_var_opts [:description, :doc, :required, :default, :secret, :group, :examples, :deprecated, :config_key, :name, :flag_warning]
+  @common_var_opts [
+    :description,
+    :doc,
+    :required,
+    :default,
+    :secret,
+    :group,
+    :examples,
+    :deprecated,
+    :config_key,
+    :name,
+    :flag_warning
+  ]
   @type_opts %{
     "string" => [:min_length, :max_length, :pattern],
     "int" => [:min, :max],
@@ -94,7 +106,19 @@ defmodule Docuconf.Declaration do
     "json" => [:schema]
   }
 
-  @common_file_opts [:description, :doc, :required, :secret, :path, :path_env, :reload, :max_size, :group, :deprecated, :name]
+  @common_file_opts [
+    :description,
+    :doc,
+    :required,
+    :secret,
+    :path,
+    :path_env,
+    :reload,
+    :max_size,
+    :group,
+    :deprecated,
+    :name
+  ]
   @file_type_opts %{
     "config" => [:format, :schema, :decoder],
     "tls" => [:dns_names, :key_algorithms, :min_remaining, :require_ca],
@@ -113,7 +137,9 @@ defmodule Docuconf.Declaration do
   `files` `{field, file_type, opts}` in declaration order. Returns
   `{:ok, declaration}` or `{:error, problems}`.
   """
-  @spec build(keyword(), [{atom(), term(), keyword()}], [{atom() | String.t(), String.t(), keyword()}]) ::
+  @spec build(keyword(), [{atom(), term(), keyword()}], [
+          {atom() | String.t(), String.t(), keyword()}
+        ]) ::
           {:ok, t()} | {:error, [String.t()]}
   def build(opts, vars, files) do
     {var_structs, var_problems} = vars |> Enum.map(&build_var/1) |> collect()
@@ -123,9 +149,14 @@ defmodule Docuconf.Declaration do
 
     name_problems =
       cond do
-        not is_binary(name) -> ["use Docuconf needs name: \"my-service\" (a DNS label)"]
-        not Regex.match?(~r/^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\z/, name) -> ["name #{inspect(name)} must be a DNS label ([a-z0-9-], at most 63 characters)"]
-        true -> []
+        not is_binary(name) ->
+          ["use Docuconf needs name: \"my-service\" (a DNS label)"]
+
+        not Regex.match?(~r/^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\z/, name) ->
+          ["name #{inspect(name)} must be a DNS label ([a-z0-9-], at most 63 characters)"]
+
+        true ->
+          []
       end
 
     problems =
@@ -217,7 +248,10 @@ defmodule Docuconf.Declaration do
         else: {:error, Enum.map(problems, &"#{label}: #{&1}")}
     else
       {:type, :error} ->
-        {:error, ["#{label}: unknown type #{inspect(type)}; use :string, :integer, :float, :boolean, :duration, :url, {:in, values}, {:list, :string | :integer} or :json"]}
+        {:error,
+         [
+           "#{label}: unknown type #{inspect(type)}; use :string, :integer, :float, :boolean, :duration, :url, {:in, values}, {:list, :string | :integer} or :json"
+         ]}
 
       {:opts, bad} ->
         {:error, ["#{label}: unknown options #{inspect(bad)}"]}
@@ -230,14 +264,24 @@ defmodule Docuconf.Declaration do
 
   defp deprecated(nil), do: nil
   defp deprecated(msg) when is_binary(msg), do: %{message: msg}
-  defp deprecated(opts) when is_list(opts), do: %{message: opts[:message], replaced_by: opts[:replaced_by]}
+
+  defp deprecated(opts) when is_list(opts),
+    do: %{message: opts[:message], replaced_by: opts[:replaced_by]}
 
   defp var_specifics(%Var{type: "duration"} = var, opts) do
     {min, p1} = dur(opts[:min], "min")
     {max, p2} = dur(opts[:max], "max")
-    {default, p3} = if Keyword.has_key?(opts, :default), do: dur(opts[:default], "default"), else: {nil, []}
-    unit_p = if var.unit in Duration.units(), do: [], else: ["unit must be one of #{inspect(Duration.units())}"]
-    {%{var | min: min, max: max, default: default, has_default: Keyword.has_key?(opts, :default)}, p1 ++ p2 ++ p3 ++ unit_p}
+
+    {default, p3} =
+      if Keyword.has_key?(opts, :default), do: dur(opts[:default], "default"), else: {nil, []}
+
+    unit_p =
+      if var.unit in Duration.units(),
+        do: [],
+        else: ["unit must be one of #{inspect(Duration.units())}"]
+
+    {%{var | min: min, max: max, default: default, has_default: Keyword.has_key?(opts, :default)},
+     p1 ++ p2 ++ p3 ++ unit_p}
   end
 
   defp var_specifics(%Var{type: "json"} = var, opts) do
@@ -261,9 +305,14 @@ defmodule Docuconf.Declaration do
 
   defp default_from(var, opts) do
     case Keyword.fetch(opts, :default) do
-      {:ok, d} when var.type == "enum" and is_atom(d) -> %{var | default: Atom.to_string(d), has_default: true}
-      {:ok, d} -> %{var | default: d, has_default: true}
-      :error -> var
+      {:ok, d} when var.type == "enum" and is_atom(d) ->
+        %{var | default: Atom.to_string(d), has_default: true}
+
+      {:ok, d} ->
+        %{var | default: d, has_default: true}
+
+      :error ->
+        var
     end
   end
 
@@ -276,23 +325,35 @@ defmodule Docuconf.Declaration do
     end
   end
 
-  defp dur(other, what), do: {nil, ["#{what} must be a Go duration string such as \"30s\", got #{inspect(other)}"]}
+  defp dur(other, what),
+    do: {nil, ["#{what} must be a Go duration string such as \"30s\", got #{inspect(other)}"]}
 
   defp common_var_problems(%Var{} = v, _opts) do
     [
       {not Regex.match?(~r/^[A-Z][A-Z0-9_]*\z/, v.name), "name must match ^[A-Z][A-Z0-9_]*$"},
-      {not (is_binary(v.description) and String.length(v.description) >= 5), "description is required and must be at least 5 characters"},
+      {not (is_binary(v.description) and String.length(v.description) >= 5),
+       "description is required and must be at least 5 characters"},
       {v.required and v.has_default, "a required variable must not have a default"},
       {v.secret and v.has_default, "a secret must not have a default"},
       {v.secret and v.examples != nil, "a secret must not have examples"},
-      {v.examples != nil and not (is_list(v.examples) and Enum.all?(v.examples, &is_binary/1)), "examples must be a list of strings"},
-      {v.type == "enum" and (not is_list(v.values) or v.values == []), "an enum needs a non-empty values list"},
-      {v.type == "list" and not (is_binary(v.separator) and v.separator != ""), "separator must be a non-empty string"},
-      {v.type in ["int", "float", "duration"] and v.min != nil and v.max != nil and v.min > v.max, "min is greater than max"},
-      {v.type in ["int"] and ((v.min != nil and not is_integer(v.min)) or (v.max != nil and not is_integer(v.max))), "min and max must be integers"},
-      {v.type in ["float"] and ((v.min != nil and not is_number(v.min)) or (v.max != nil and not is_number(v.max))), "min and max must be numbers"},
-      {v.min_length != nil and v.max_length != nil and v.min_length > v.max_length, "minLength is greater than maxLength"},
-      {v.min_items != nil and v.max_items != nil and v.min_items > v.max_items, "minItems is greater than maxItems"},
+      {v.examples != nil and not (is_list(v.examples) and Enum.all?(v.examples, &is_binary/1)),
+       "examples must be a list of strings"},
+      {v.type == "enum" and (not is_list(v.values) or v.values == []),
+       "an enum needs a non-empty values list"},
+      {v.type == "list" and not (is_binary(v.separator) and v.separator != ""),
+       "separator must be a non-empty string"},
+      {v.type in ["int", "float", "duration"] and v.min != nil and v.max != nil and v.min > v.max,
+       "min is greater than max"},
+      {v.type in ["int"] and
+         ((v.min != nil and not is_integer(v.min)) or (v.max != nil and not is_integer(v.max))),
+       "min and max must be integers"},
+      {v.type in ["float"] and
+         ((v.min != nil and not is_number(v.min)) or (v.max != nil and not is_number(v.max))),
+       "min and max must be numbers"},
+      {v.min_length != nil and v.max_length != nil and v.min_length > v.max_length,
+       "minLength is greater than maxLength"},
+      {v.min_items != nil and v.max_items != nil and v.min_items > v.max_items,
+       "minItems is greater than maxItems"},
       {v.schemes != nil and v.schemes == [], "schemes must not be empty"}
     ]
     |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)
@@ -319,8 +380,11 @@ defmodule Docuconf.Declaration do
       []
     else
       case Value.check(v, v.default) do
-        {:ok, _} -> []
-        {:error, code, msg} -> ["default does not satisfy the variable's constraints (#{code}: #{msg})"]
+        {:ok, _} ->
+          []
+
+        {:error, code, msg} ->
+          ["default does not satisfy the variable's constraints (#{code}: #{msg})"]
       end
     end
   end
@@ -333,7 +397,9 @@ defmodule Docuconf.Declaration do
         if is_atom(field), do: field |> Atom.to_string() |> String.replace("_", "-"), else: field
       end)
 
-    field = if is_atom(field), do: field, else: field |> String.replace("-", "_") |> String.to_atom()
+    field =
+      if is_atom(field), do: field, else: field |> String.replace("-", "_") |> String.to_atom()
+
     label = "#{type} file #{inspect(name)}"
 
     case Keyword.keys(opts) -- (@common_file_opts ++ @file_type_opts[type]) do
@@ -402,22 +468,37 @@ defmodule Docuconf.Declaration do
 
   defp file_problems(%FileInput{} = f, opts) do
     [
-      {not Regex.match?(~r/^[a-z]([-a-z0-9]{0,40}[a-z0-9])?\z/, f.name), "input name must be a DNS label of at most 42 characters ([a-z0-9-], starting with a letter)"},
-      {not (is_binary(f.description) and String.length(f.description) >= 5), "description is required and must be at least 5 characters"},
-      {not abs_path?(f.path), "path must be absolute and normalised (no ., .., // or trailing /)"},
-      {f.path_env != nil and not Regex.match?(~r/^[A-Z][A-Z0-9_]*\z/, f.path_env), "path_env must match ^[A-Z][A-Z0-9_]*$"},
+      {not Regex.match?(~r/^[a-z]([-a-z0-9]{0,40}[a-z0-9])?\z/, f.name),
+       "input name must be a DNS label of at most 42 characters ([a-z0-9-], starting with a letter)"},
+      {not (is_binary(f.description) and String.length(f.description) >= 5),
+       "description is required and must be at least 5 characters"},
+      {not abs_path?(f.path),
+       "path must be absolute and normalised (no ., .., // or trailing /)"},
+      {f.path_env != nil and not Regex.match?(~r/^[A-Z][A-Z0-9_]*\z/, f.path_env),
+       "path_env must match ^[A-Z][A-Z0-9_]*$"},
       {f.reload not in ["restart", "watch"], "reload must be :restart or :watch"},
-      {f.max_size != nil and not (is_integer(f.max_size) and f.max_size > 0), "max_size must be a positive integer (bytes)"},
-      {f.type in ["tls", "keystore"] and opts[:secret] == false, "#{f.type} inputs are always secret"},
-      {f.type == "config" and f.format not in ["json", "yaml", "toml"], "format must be :json, :yaml or :toml"},
+      {f.max_size != nil and not (is_integer(f.max_size) and f.max_size > 0),
+       "max_size must be a positive integer (bytes)"},
+      {f.type in ["tls", "keystore"] and opts[:secret] == false,
+       "#{f.type} inputs are always secret"},
+      {f.type == "config" and f.format not in ["json", "yaml", "toml"],
+       "format must be :json, :yaml or :toml"},
       {f.type == "config" and f.format in ["yaml", "toml"] and f.decoder == nil,
        "format #{f.format} needs decoder: (Elixir has no built-in #{f.format} parser), e.g. decoder: &YamlElixir.read_from_string/1"},
-      {f.decoder != nil and not decoder?(f.decoder), "decoder must be a remote function capture (&Mod.fun/1) or {Mod, :fun}"},
-      {f.type == "keystore" and f.format not in ["pkcs12", "jks"], "format must be :pkcs12 or :jks"},
-      {f.type == "tls" and f.key_algorithms != nil and Enum.any?(f.key_algorithms, &match?({:invalid, _}, &1)), "key_algorithms must be :rsa, :ecdsa or :ed25519"},
-      {f.type == "tls" and f.dns_names != nil and (f.dns_names == [] or not Enum.all?(f.dns_names, &is_binary/1)), "dns_names must be a non-empty list of strings"},
-      {f.type == "caBundle" and not (is_integer(f.min_certificates) and f.min_certificates >= 1), "min_certificates must be at least 1"},
-      {f.min_length != nil and f.max_length != nil and f.min_length > f.max_length, "min_length is greater than max_length"}
+      {f.decoder != nil and not decoder?(f.decoder),
+       "decoder must be a remote function capture (&Mod.fun/1) or {Mod, :fun}"},
+      {f.type == "keystore" and f.format not in ["pkcs12", "jks"],
+       "format must be :pkcs12 or :jks"},
+      {f.type == "tls" and f.key_algorithms != nil and
+         Enum.any?(f.key_algorithms, &match?({:invalid, _}, &1)),
+       "key_algorithms must be :rsa, :ecdsa or :ed25519"},
+      {f.type == "tls" and f.dns_names != nil and
+         (f.dns_names == [] or not Enum.all?(f.dns_names, &is_binary/1)),
+       "dns_names must be a non-empty list of strings"},
+      {f.type == "caBundle" and not (is_integer(f.min_certificates) and f.min_certificates >= 1),
+       "min_certificates must be at least 1"},
+      {f.min_length != nil and f.max_length != nil and f.min_length > f.max_length,
+       "min_length is greater than max_length"}
     ]
     |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)
     |> Kernel.++(pattern_problems(f.pattern))
@@ -443,7 +524,10 @@ defmodule Docuconf.Declaration do
     file_names = Enum.map(files, & &1.name)
 
     dup = fn names, what ->
-      names |> Enum.frequencies() |> Enum.filter(fn {_, n} -> n > 1 end) |> Enum.map(fn {k, _} -> "#{what} #{k} is declared more than once" end)
+      names
+      |> Enum.frequencies()
+      |> Enum.filter(fn {_, n} -> n > 1 end)
+      |> Enum.map(fn {k, _} -> "#{what} #{k} is declared more than once" end)
     end
 
     mounts =
@@ -451,8 +535,11 @@ defmodule Docuconf.Declaration do
       |> Enum.filter(&abs_path?(&1.path))
       |> Enum.group_by(&mount_dir/1)
       |> Enum.flat_map(fn
-        {dir, [_, _ | _] = fs} -> ["file inputs #{Enum.map_join(fs, ", ", & &1.name)} share mount directory #{dir}"]
-        _ -> []
+        {dir, [_, _ | _] = fs} ->
+          ["file inputs #{Enum.map_join(fs, ", ", & &1.name)} share mount directory #{dir}"]
+
+        _ ->
+          []
       end)
 
     reserved =
@@ -466,7 +553,9 @@ defmodule Docuconf.Declaration do
       end
 
     pw =
-      for f <- files, f.type == "keystore", f.password_var != nil,
+      for f <- files,
+          f.type == "keystore",
+          f.password_var != nil,
           not Enum.any?(vars, &(&1.name == f.password_var and &1.secret)) do
         "keystore #{inspect(f.name)}: password_var #{f.password_var} must name a declared secret variable"
       end

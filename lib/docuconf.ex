@@ -197,8 +197,11 @@ defmodule Docuconf do
 
     {result, warnings} =
       case Loader.run(decl, opts) do
-        {:ok, values, warnings} -> {{:ok, struct!(module, values)}, warnings}
-        {:error, violations, warnings} -> {{:error, %ValidationError{violations: violations}}, warnings}
+        {:ok, values, warnings} ->
+          {{:ok, struct!(module, values)}, warnings}
+
+        {:error, violations, warnings} ->
+          {{:error, %ValidationError{violations: violations}}, warnings}
       end
 
     if Keyword.get(opts, :warn, true) do

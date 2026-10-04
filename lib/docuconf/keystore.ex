@@ -51,7 +51,9 @@ defmodule Docuconf.Keystore do
           :crypto.mac(:hmac, hash, key, data) == digest
         end)
 
-      if ok?, do: :ok, else: {:error, "wrong password or corrupted file: the integrity MAC does not match"}
+      if ok?,
+        do: :ok,
+        else: {:error, "wrong password or corrupted file: the integrity MAC does not match"}
     else
       {:error, _} = e -> e
       _ -> {:error, "not a DER-encoded PKCS#12 (PFX) file"}
@@ -63,12 +65,17 @@ defmodule Docuconf.Keystore do
          {:ok, {0x04, data}, ""} <- tlv(explicit) do
       {:ok, data}
     else
-      _ -> {:error, "PKCS#12 authSafe is not plain data (public-key integrity mode is not supported)"}
+      _ ->
+        {:error,
+         "PKCS#12 authSafe is not plain data (public-key integrity mode is not supported)"}
     end
   end
 
   defp mac_data([{0x30, mac_data}]), do: {:ok, mac_data}
-  defp mac_data([]), do: {:error, "the PKCS#12 file has no integrity MAC, so its password cannot be checked"}
+
+  defp mac_data([]),
+    do: {:error, "the PKCS#12 file has no integrity MAC, so its password cannot be checked"}
+
   defp mac_data(_), do: {:error, "malformed PKCS#12 MacData"}
 
   defp mac_params(mac_data) do
@@ -170,7 +177,7 @@ defmodule Docuconf.Keystore do
     {arcs, _} =
       for <<more::1, bits::7 <- rest>>, reduce: {[], 0} do
         {arcs, acc} ->
-          acc = (acc <<< 7) ||| bits
+          acc = acc <<< 7 ||| bits
           if more == 1, do: {arcs, acc}, else: {[acc | arcs], 0}
       end
 
