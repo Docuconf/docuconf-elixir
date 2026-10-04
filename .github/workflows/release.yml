@@ -34,10 +34,7 @@ jobs:
 
       - name: Check the tag matches mix.exs
         run: |
-          version=$(mix run --no-compile --no-start -e 'IO.write(Mix.Project.config()[:version])' 2>/dev/null || true)
-          if [ -z "$version" ]; then
-            version=$(grep -Eo '@version "[^"]+"' mix.exs | cut -d'"' -f2)
-          fi
+          version=$(grep -Eo '@version "[^"]+"' mix.exs | cut -d'"' -f2)
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "Tag $GITHUB_REF_NAME does not match mix.exs version $version" >&2
             exit 1
