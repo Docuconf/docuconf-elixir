@@ -90,12 +90,16 @@ defmodule Docuconf.RE2 do
     scan(rest, false, prev)
   end
 
-  @doc "Compiles an RE2 pattern for partial matching with RE2 `$` semantics."
+  @doc """
+  Compiles an RE2 pattern for partial matching with RE2 semantics: `$` is
+  end of text, and `\\d`, `\\w`, `\\s`, `\\b` (and their negations) are
+  ASCII-only, as in RE2, rather than following PCRE's Latin-1 tables.
+  """
   @spec compile(String.t()) :: {:ok, Regex.t()} | {:error, String.t()}
   def compile(pattern) do
     case non_re2_feature(pattern) do
       nil ->
-        case Regex.compile(pattern, [:unicode, :dollar_endonly]) do
+        case Regex.compile(ascii_classes(pattern), [:unicode, :dollar_endonly]) do
           {:ok, re} -> {:ok, re}
           {:error, {msg, pos}} -> {:error, "invalid pattern at #{pos}: #{msg}"}
         end
@@ -104,6 +108,51 @@ defmodule Docuconf.RE2 do
         {:error, "uses #{feature}, which RE2 does not support"}
     end
   end
+
+  @word "0-9A-Za-z_"
+  @space "\\t\\n\\f\\r "
+  @outside %{
+    ?d => "[0-9]",
+    ?D => "[^0-9]",
+    ?w => "[#{@word}]",
+    ?W => "[^#{@word}]",
+    ?s => "[#{@space}]",
+    ?S => "[^#{@space}]",
+    ?b => "(?:(?<=[#{@word}])(?![#{@word}])|(?<![#{@word}])(?=[#{@word}]))",
+    ?B => "(?:(?<=[#{@word}])(?=[#{@word}])|(?<![#{@word}])(?![#{@word}]))"
+  }
+  @inside %{?d => "0-9", ?w => @word, ?s => @space}
+
+  @doc false
+  def ascii_classes(pattern), do: ascii(pattern, false, [])
+
+  defp ascii("", _in_class, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp ascii(<<?\\, c, rest::binary>>, false, acc) when is_map_key(@outside, c),
+    do: ascii(rest, false, [@outside[c] | acc])
+
+  defp ascii(<<?\\, c, rest::binary>>, true, acc) when is_map_key(@inside, c),
+    do: ascii(rest, true, [@inside[c] | acc])
+
+  defp ascii(<<?\\, c::utf8, rest::binary>>, in_class, acc),
+    do: ascii(rest, in_class, [<<?\\, c::utf8>> | acc])
+
+  defp ascii("[" <> rest, false, acc) do
+    {open, rest} =
+      case rest do
+        "^]" <> r -> {"[^]", r}
+        "^" <> r -> {"[^", r}
+        "]" <> r -> {"[]", r}
+        r -> {"[", r}
+      end
+
+    ascii(rest, true, [open | acc])
+  end
+
+  defp ascii("]" <> rest, true, acc), do: ascii(rest, false, ["]" | acc])
+
+  defp ascii(<<c::utf8, rest::binary>>, in_class, acc),
+    do: ascii(rest, in_class, [<<c::utf8>> | acc])
 
   @doc "Partial match, as CUE `=~` and JSON Schema `pattern` do."
   @spec matches?(Regex.t() | String.t(), String.t()) :: boolean()

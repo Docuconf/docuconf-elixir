@@ -131,8 +131,9 @@ Every variable takes `description` (or `doc`; at least 5 characters, required),
 - **Patterns** are RE2 and match anywhere in the value, as in CUE; anchor
   them with `^` and `$`. A `~r` sigil or a string both work. PCRE-only
   features (lookaround, backreferences, atomic groups, possessive
-  quantifiers) are rejected at compile time, and `$` means end of text as
-  in RE2, not "before a final newline" as in PCRE.
+  quantifiers) are rejected at compile time. Matching follows RE2, not
+  PCRE: `$` means end of text (not "before a final newline"), and `\d`,
+  `\w`, `\s` and `\b` are ASCII-only.
 - **Empty strings** are present values for `:string` and unset for every
   other type. Values are never trimmed.
 - **JSON schemas** are a JSON Schema map, or a keyword spec in the

@@ -34,4 +34,13 @@ defmodule Docuconf.RE2Test do
     refute RE2.matches?("^abc$", "abc\n")
     assert RE2.matches?("^abc\\n?$", "abc\n")
   end
+
+  test "\\d, \\w, \\s and \\b are ASCII-only, as in RE2" do
+    refute RE2.matches?("^\\d$", "٣")
+    refute RE2.matches?("^\\w$", "é")
+    refute RE2.matches?("^\\s$", "\u00A0")
+    assert RE2.matches?("^\\d\\w$", "1a")
+    # . still matches a whole code point.
+    assert RE2.matches?("^.$", "é")
+  end
 end
