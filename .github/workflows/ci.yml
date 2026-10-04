@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - otp: "25"
+            elixir: "1.18"
+          - otp: "27"
+            elixir: "1.18"
+          - otp: "28"
+            elixir: "1.19"
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      # The contract meta-schema (spec/cue) lives in docuconf-go; the export
+      # test vets generated contracts against it.
+      - uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          path: docuconf-go
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install cue
+        run: go install cuelang.org/go/cmd/cue@v0.17.1
+
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+        env:
+          DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
+          DOCUCONF_REQUIRE_VET: "1"
+
+      - name: Example app's contract is up to date
+        working-directory: examples/orders
+        run: mix docuconf.export --check

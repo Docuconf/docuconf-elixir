@@ -1,0 +1,59 @@
+name: Release
+
+# Push a tag such as v0.1.0 (matching @version in mix.exs) to publish to Hex.
+# Hex has no OIDC trusted publishing, so this uses an API key stored as the
+# HEX_API_KEY secret of the "hex" environment (see RELEASING.md).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: hex
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          path: docuconf-go
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - run: go install cuelang.org/go/cmd/cue@v0.17.1
+
+      - name: Check the tag matches mix.exs
+        run: |
+          version=$(mix run --no-compile --no-start -e 'IO.write(Mix.Project.config()[:version])' 2>/dev/null || true)
+          if [ -z "$version" ]; then
+            version=$(grep -Eo '@version "[^"]+"' mix.exs | cut -d'"' -f2)
+          fi
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match mix.exs version $version" >&2
+            exit 1
+          fi
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+        env:
+          DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
+          DOCUCONF_REQUIRE_VET: "1"
+
+      - name: Publish to Hex
+        env:
+          MIX_ENV: dev
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: |
+          mix deps.get
+          mix hex.publish --yes
