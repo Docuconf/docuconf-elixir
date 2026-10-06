@@ -159,6 +159,44 @@ defmodule Docuconf.VarsTest do
     assert codes(load(%{"PORTS" => "65536"})) == [{"PORTS", :out_of_range}]
   end
 
+  defmodule Encoded do
+    use Docuconf, name: "encoded"
+
+    env :brokers, {:list, :string}, description: "Kafka brokers", encoding: :indexed
+    env :shards, {:list, :integer}, description: "Shard ids", encoding: :json, item_max: 9
+    env :grace, :duration, description: "Shutdown grace", encoding: :iso8601
+    env :ttl, :duration, description: "Cache TTL", encoding: :seconds, unit: :second
+    env :window, :duration, description: "Rate window", encoding: :timespan
+  end
+
+  test "declared list and duration encodings are parsed" do
+    env = %{
+      "BROKERS__0" => "kafka-0:9092",
+      "BROKERS__1" => "kafka-1:9092",
+      "SHARDS" => "[1,2]",
+      "GRACE" => "PT1.5S",
+      "TTL" => "90",
+      "WINDOW" => "00:01:00"
+    }
+
+    assert {:ok, %Encoded{} = e} = Encoded.load(env: env, termination_log: false, warn: false)
+    assert e.brokers == ["kafka-0:9092", "kafka-1:9092"]
+    assert e.shards == [1, 2]
+    assert {e.grace, e.ttl, e.window} == {1500, 90, 60_000}
+
+    bad = %{"SHARDS" => "[1,10]", "GRACE" => "1s", "TTL" => "1m", "WINDOW" => "1m"}
+
+    assert {:error, %{violations: vs}} =
+             Encoded.load(env: bad, termination_log: false, warn: false)
+
+    assert Enum.map(vs, &{&1.input, &1.code}) == [
+             {"GRACE", :invalid_type},
+             {"SHARDS", :out_of_range},
+             {"TTL", :invalid_type},
+             {"WINDOW", :invalid_type}
+           ]
+  end
+
   test "values are never trimmed" do
     assert codes(load(%{"PORT" => "8080\n"})) == [{"PORT", :invalid_type}]
     assert {:ok, %Env{motd: " hi \n"}} = load(%{"MOTD" => " hi \n"})

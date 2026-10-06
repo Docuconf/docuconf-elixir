@@ -72,6 +72,24 @@ defmodule Docuconf.DeclarationTest do
     assert text =~ "IDS): default does not satisfy the variable's constraints (out_of_range"
   end
 
+  test "encodings are checked" do
+    text =
+      Enum.join(
+        problems("""
+        env :a, {:list, :string}, description: "Some list", encoding: :yaml
+        env :b, {:list, :string}, description: "Some list", encoding: :json, separator: ";"
+        env :c, :duration, description: "Some duration", encoding: :weeks
+        env :d, :string, description: "Some string", encoding: :json
+        """),
+        "\n"
+      )
+
+    assert text =~ "(A): encoding must be :csv, :json or :indexed"
+    assert text =~ "(B): separator applies only to the csv encoding"
+    assert text =~ "(C): encoding must be :go, :iso8601, :seconds or :timespan"
+    assert text =~ "env :d: unknown options [:encoding]"
+  end
+
   test "names must be upper snake case" do
     assert Enum.join(problems(~s|env :port, :integer, description: "Listen port", name: "port"|)) =~
              "name must match"

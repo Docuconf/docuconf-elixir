@@ -99,6 +99,94 @@ defmodule Docuconf.Duration do
     end)
   end
 
+  @encodings ["go", "iso8601", "seconds", "timespan"]
+
+  @doc "The duration wire encodings of SPEC §5."
+  @spec encodings() :: [String.t()]
+  def encodings, do: @encodings
+
+  @doc """
+  Parses a duration in one of the wire encodings of SPEC §5 into
+  nanoseconds:
+
+    * `"go"`: Go syntax, `1m30s` (see `parse/1`);
+    * `"iso8601"`: `PT90S`, `PT1.5S`, `P1DT2H3M4.5S` (days, hours, minutes
+      and seconds; years, months and weeks have no fixed length and are
+      rejected);
+    * `"seconds"`: a decimal number of seconds, `90` or `0.25`;
+    * `"timespan"`: .NET `TimeSpan`, `[d.]hh:mm:ss[.fffffff]`.
+
+  Fractions are exact down to the nanosecond; finer digits are truncated.
+
+      iex> Docuconf.Duration.parse("PT1.5S", "iso8601")
+      {:ok, 1_500_000_000}
+      iex> Docuconf.Duration.parse("1.02:03:04.5", "timespan")
+      {:ok, 93_784_500_000_000}
+      iex> Docuconf.Duration.parse("90s", "seconds")
+      :error
+  """
+  @spec parse(String.t(), String.t()) :: {:ok, nanoseconds()} | :error
+  def parse(s, "go"), do: parse(s)
+
+  def parse(s, "iso8601") when is_binary(s) do
+    case Regex.run(
+           ~r/^P(?:([0-9]+)D)?(?:T(?:([0-9]+)H)?(?:([0-9]+)M)?(?:([0-9]+)(?:\.([0-9]+))?S)?)?\z/,
+           s
+         ) do
+      [_ | groups] ->
+        [d, h, m, sec, frac] = groups ++ List.duplicate("", 5 - length(groups))
+        time_part = String.split(s, "T", parts: 2)
+
+        cond do
+          # "P" alone, and a "T" with nothing after it, are not durations.
+          d == "" and h == "" and m == "" and sec == "" -> :error
+          match?([_, ""], time_part) -> :error
+          true -> sum([{d, 86_400}, {h, 3_600}, {m, 60}, {sec, 1}], frac)
+        end
+
+      nil ->
+        :error
+    end
+  end
+
+  def parse(s, "seconds") when is_binary(s) do
+    case Regex.run(~r/^([0-9]+)(?:\.([0-9]+))?\z/, s) do
+      [_, sec] -> sum([{sec, 1}], "")
+      [_, sec, frac] -> sum([{sec, 1}], frac)
+      nil -> :error
+    end
+  end
+
+  def parse(s, "timespan") when is_binary(s) do
+    case Regex.run(
+           ~r/^(?:([0-9]+)\.)?([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(?:\.([0-9]+))?\z/,
+           s
+         ) do
+      [_ | groups] ->
+        [d, h, m, sec, frac] = groups ++ List.duplicate("", 5 - length(groups))
+
+        if to_i(h) < 24 and to_i(m) < 60 and to_i(sec) < 60,
+          do: sum([{d, 86_400}, {h, 3_600}, {m, 60}, {sec, 1}], frac),
+          else: :error
+
+      nil ->
+        :error
+    end
+  end
+
+  def parse(_, _), do: :error
+
+  defp to_i(""), do: 0
+  defp to_i(s), do: String.to_integer(s)
+
+  # Whole units (in seconds) plus a fraction of a second, in nanoseconds.
+  defp sum(parts, frac) do
+    secs = Enum.reduce(parts, 0, fn {digits, per}, acc -> acc + to_i(digits) * per end)
+    frac = frac |> String.slice(0, 9) |> String.pad_trailing(9, "0")
+    ns = secs * 1_000_000_000 + to_i(frac)
+    if ns > @max_ns, do: :error, else: {:ok, ns}
+  end
+
   @doc """
   Formats nanoseconds in canonical Go form, as the contract requires.
 

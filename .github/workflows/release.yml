@@ -46,6 +46,9 @@ jobs:
         env:
           DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
           DOCUCONF_REQUIRE_VET: "1"
+          # The shared conformance suite (SPEC §12), from the same checkout.
+          DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
+          DOCUCONF_REQUIRE_CONFORMANCE: "1"
 
       - name: Publish to Hex
         env:

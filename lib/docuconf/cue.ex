@@ -5,7 +5,7 @@ defmodule Docuconf.CUE do
   by name so the output is deterministic.
   """
 
-  alias Docuconf.{Declaration, Duration, FileInput, Var}
+  alias Docuconf.{Declaration, Duration, FileInput, Value, Var}
 
   @sdk "docuconf"
   @version Mix.Project.config()[:version]
@@ -76,7 +76,7 @@ defmodule Docuconf.CUE do
 
   defp type_fields(%Var{type: "duration"} = v),
     do: [
-      {"encoding", "go"},
+      {"encoding", Value.encoding(v)},
       v.min && {"min", Duration.format(v.min)},
       v.max && {"max", Duration.format(v.max)}
     ]
@@ -87,8 +87,8 @@ defmodule Docuconf.CUE do
   defp type_fields(%Var{type: "list"} = v),
     do: [
       {"items", v.items},
-      {"encoding", "csv"},
-      {"separator", v.separator},
+      {"encoding", Value.encoding(v)},
+      Value.encoding(v) == "csv" && {"separator", v.separator},
       v.min_items && {"minItems", v.min_items},
       v.max_items && {"maxItems", v.max_items},
       v.item_min != nil && {"itemMin", v.item_min},

@@ -26,8 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The contract meta-schema (spec/cue) lives in docuconf-go; the export
-      # test vets generated contracts against it.
+      # The contract meta-schema (spec/cue) and the conformance suite
+      # (conformance/cases.json) live in docuconf-go; the tests use both.
       - uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
@@ -53,6 +53,9 @@ jobs:
         env:
           DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
           DOCUCONF_REQUIRE_VET: "1"
+          # The shared conformance suite (SPEC §12), from the same checkout.
+          DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
+          DOCUCONF_REQUIRE_CONFORMANCE: "1"
 
       - name: Example app's contract is up to date
         working-directory: examples/orders

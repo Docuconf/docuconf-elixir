@@ -63,7 +63,7 @@ defmodule Docuconf do
 
   Types: `:string`, `:integer`, `:float`, `:boolean`, `:duration` (Go
   syntax, `1m30s`), `:url`, `{:in, values}` (or `:enum` with `values:`),
-  `{:list, :string}`, `{:list, :integer}` (comma-separated, or `separator:`)
+  `{:list, :string}`, `{:list, :integer}` (comma-separated by default)
   and `:json`.
 
   Options: `description` (or `doc`, at least 5 characters, required),
@@ -71,9 +71,11 @@ defmodule Docuconf do
   `config_key`, `name`, `flag_warning`; by type, `min`/`max` (integer,
   float, duration), `min_length`/`max_length`/`pattern` (string; RE2,
   partial match), `schemes` (url), `values` (enum), `min_items`/`max_items`/
-  `separator` (list), `schema` (json: a JSON Schema map or a keyword spec),
-  `unit` (duration: `:millisecond` by default, `:second`, `:microsecond`,
-  `:nanosecond` or `:duration` for an Elixir `Duration`).
+  `separator` (list), `item_min`/`item_max` (integer list items), `schema`
+  (json: a JSON Schema map or a keyword spec), `unit` (duration:
+  `:millisecond` by default, `:second`, `:microsecond`, `:nanosecond` or
+  `:duration` for an Elixir `Duration`), `encoding` (list: `:csv`, `:json`
+  or `:indexed`; duration: `:go`, `:iso8601`, `:seconds` or `:timespan`).
   """
   defmacro env(field, type, opts \\ []) do
     quote do
