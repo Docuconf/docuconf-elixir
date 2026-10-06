@@ -189,7 +189,16 @@ defmodule Docuconf do
     * `:termination_log` - where to write violations, or `false` (default
       `DOCUCONF_TERMINATION_LOG`, else `/dev/termination-log` if it exists);
     * `:now` - a `DateTime` for certificate checks (tests);
-    * `:warn` - `false` to silence warnings on standard error.
+    * `:warn` - `false` to silence warnings on standard error;
+    * `:watcher_check` - what happens when the declaration has
+      `reload: :watch` inputs and no `Docuconf.Watcher` is running for the
+      module once its application has started: `:halt` (the default when
+      reading the process environment) prints the problem, writes it to the
+      termination log and stops the node with exit status 1; `:warn` only
+      logs it; a 1-arity function receives the message; `false` (the
+      default when `:env` is given) skips the check;
+    * `:watcher_grace` - for a module that belongs to no application, how
+      long to wait before checking, in milliseconds (default 5000).
   """
   @spec load(module(), keyword()) :: {:ok, struct()} | {:error, ValidationError.t()}
   def load(module, opts \\ []) do
@@ -198,6 +207,7 @@ defmodule Docuconf do
     {result, warnings} =
       case Loader.run(decl, opts) do
         {:ok, values, warnings} ->
+          Docuconf.Watcher.expect(module, decl, opts)
           {{:ok, struct!(module, values)}, warnings}
 
         {:error, violations, warnings} ->
