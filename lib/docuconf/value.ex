@@ -43,7 +43,7 @@ defmodule Docuconf.Value do
   defp parse_type(%Var{type: "int"} = var, raw) do
     case parse_int(raw) do
       {:ok, i} -> {:ok, i}
-      :range -> {:error, :invalid_type, "#{shown(var, raw)} is outside the 64-bit integer range"}
+      :range -> {:error, :out_of_range, "#{shown(var, raw)} is outside the 64-bit integer range"}
       :error -> {:error, :invalid_type, "#{shown(var, raw)} is not an integer"}
     end
   end

@@ -125,7 +125,9 @@ defmodule Docuconf.VarsTest do
 
   test "bad int, bad url and invalid scheme" do
     assert codes(load(%{"PORT" => "80.5"})) == [{"PORT", :invalid_type}]
-    assert codes(load(%{"PORT" => "99999999999999999999"})) == [{"PORT", :invalid_type}]
+    # SPEC §5: outside the 64-bit range is out_of_range, not invalid_type.
+    assert codes(load(%{"PORT" => "99999999999999999999"})) == [{"PORT", :out_of_range}]
+    assert codes(load(%{"PORTS" => "1;9223372036854775808"})) == [{"PORTS", :out_of_range}]
     assert codes(load(%{"DATABASE_URL" => "not a url"})) == [{"DATABASE_URL", :invalid_type}]
     assert codes(load(%{"DATABASE_URL" => "mysql://db/x"})) == [{"DATABASE_URL", :invalid_scheme}]
     assert codes(load(%{"ORIGINS" => ""})) == []
