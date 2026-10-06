@@ -28,6 +28,15 @@ defmodule Docuconf.Watcher do
       value. Defaults to logging a warning;
     * `:interval` - poll interval in milliseconds (default 5000);
     * `:env`, `:file_root` - as for `Docuconf.load/2`.
+
+  ## The watcher must run
+
+  A `reload: :watch` input tells the platform not to restart the pod when
+  the file changes, so a missing watcher means the app silently keeps stale
+  content. `Docuconf.load/2` therefore checks, once the application that
+  owns the declaration module has started, that a watcher for that module is
+  running, and by default stops the node if it is not. See the
+  `:watcher_check` option of `Docuconf.load/2`.
   """
 
   use GenServer
@@ -53,6 +62,7 @@ defmodule Docuconf.Watcher do
     env = Keyword.get_lazy(opts, :env, &System.get_env/0)
     file_root = Keyword.get(opts, :file_root, Map.get(env, "DOCUCONF_FILE_ROOT"))
     watched = Enum.filter(decl.files, &(&1.reload == "watch"))
+    :persistent_term.put({__MODULE__, module}, self())
 
     state = %{
       decl: decl,
@@ -114,6 +124,102 @@ defmodule Docuconf.Watcher do
       "docuconf: #{field} changed but is invalid, keeping the previous value:\n" <>
         Enum.map_join(violations, "\n", &("  - " <> Docuconf.Violation.format(&1)))
     )
+  end
+
+  @doc false
+  # Is a watcher running for `module`?
+  def running?(module) do
+    case :persistent_term.get({__MODULE__, module}, nil) do
+      pid when is_pid(pid) -> Process.alive?(pid)
+      nil -> false
+    end
+  end
+
+  @doc false
+  # Called by Docuconf.load/2 after a successful load. When the declaration
+  # has `reload: :watch` inputs, a guard process waits until the module's
+  # application has started (its supervision tree is then up) and checks
+  # that a watcher for the module is running. One guard per module.
+  def expect(module, decl, opts) do
+    default = if Keyword.has_key?(opts, :env), do: false, else: :halt
+    mode = Keyword.get(opts, :watcher_check, default)
+    watched = for f <- decl.files, f.reload == "watch", do: f.name
+
+    if mode not in [false, nil] and watched != [] do
+      validate_mode!(mode)
+      grace = Keyword.get(opts, :watcher_grace, 5_000)
+      parent = self()
+
+      {pid, ref} =
+        spawn_monitor(fn ->
+          registered =
+            try do
+              Process.register(self(), guard_name(module))
+            rescue
+              ArgumentError -> false
+            end
+
+          send(parent, {:docuconf_guard, self()})
+          if registered, do: guard(module, watched, mode, grace, opts)
+        end)
+
+      receive do
+        {:docuconf_guard, ^pid} -> Process.demonitor(ref, [:flush])
+        {:DOWN, ^ref, _, _, _} -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp validate_mode!(mode) when mode in [:halt, :warn] or is_function(mode, 1), do: :ok
+
+  defp validate_mode!(mode) do
+    raise ArgumentError,
+          "docuconf: :watcher_check must be :halt, :warn, false or a 1-arity function, got: " <>
+            inspect(mode)
+  end
+
+  defp guard_name(module), do: :"#{__MODULE__}.Guard.#{inspect(module)}"
+
+  defp guard(module, watched, mode, grace, opts) do
+    case Application.get_application(module) do
+      nil -> Process.sleep(grace)
+      app -> wait_started(app, 10)
+    end
+
+    unless running?(module), do: unwatched(module, watched, mode, opts)
+  end
+
+  defp wait_started(app, delay) do
+    unless List.keymember?(Application.started_applications(), app, 0) do
+      Process.sleep(delay)
+      wait_started(app, min(delay * 2, 1_000))
+    end
+  end
+
+  defp unwatched(module, watched, mode, opts) do
+    message =
+      "docuconf: #{inspect(module)} declares reload: watch for #{Enum.join(watched, ", ")}, " <>
+        "but no Docuconf.Watcher is running for it. The contract promises the app rereads " <>
+        "these files, so the platform will not restart the pod when they change. Add " <>
+        "{Docuconf.Watcher, module: #{inspect(module)}, on_change: ...} to your supervision " <>
+        "tree, or declare reload: :restart."
+
+    case mode do
+      fun when is_function(fun, 1) ->
+        fun.(message)
+
+      :warn ->
+        IO.puts(:stderr, message)
+        Logger.error(message)
+
+      :halt ->
+        IO.puts(:stderr, message)
+        Logger.error(message)
+        Docuconf.Loader.write_termination_log(message, opts)
+        System.stop(1)
+    end
   end
 
   defp schedule(state), do: Process.send_after(self(), :poll, state.interval)

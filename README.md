@@ -201,6 +201,27 @@ It polls (OTP has no portable file-event API), runs the file's boot checks
 again on every change, and calls `on_change` only for valid content. If you
 do not run it, declare `reload: :restart`, which is the default.
 
+The promise is enforced. Supervision is decided at runtime, so it cannot be
+checked when the declaration compiles; instead `load!/1`, when the
+declaration has a `watch` input, checks once the application that owns the
+module has started (its supervision tree is up by then) that a
+`Docuconf.Watcher` for the module is running. If not, it prints the problem,
+writes it to the termination log and **stops the node** with exit status 1,
+so the pod fails like any other bad configuration rather than silently
+serving stale files:
+
+```
+docuconf: MyApp.Env declares reload: watch for pricing, but no Docuconf.Watcher is running for it. ...
+```
+
+Pass `watcher_check: :warn` to only log it (for example when the watcher
+lives in another application that starts later), or `watcher_check: false`
+to skip it. Loads with an explicit `env:` map (tests) skip the check unless
+`watcher_check` is given. A module that belongs to no application (a script)
+is checked after `watcher_grace` milliseconds (default 5000). With
+`reboot_system_after_config: true` in a release, the check does not survive
+the reboot.
+
 ## Loading
 
 `MyApp.Env.load!(opts)` returns the struct or raises
@@ -211,7 +232,8 @@ do not run it, declare `reload: :restart`, which is the default.
 - `dotenv: ".env"` reads a `.env` file first, for development. Real
   environment variables always override it;
 - `file_root:`, `termination_log:` (a path, or `false`), `now:` (a
-  `DateTime` for certificate checks), `warn: false`.
+  `DateTime` for certificate checks), `warn: false`;
+- `watcher_check:` and `watcher_grace:` (see [Reloading files](#reloading-files)).
 
 Warnings go to standard error: a deprecated variable that is set, and a
 secret that ends in a newline (a common `kubectl create secret --from-file`
@@ -230,6 +252,29 @@ end
 
 or load in tests with an explicit environment: `MyApp.Env.load!(env: %{...})`.
 `mix docuconf.export` never needs the environment.
+
+## Injected secrets
+
+Platforms often inject secrets into the environment at runtime: Bank-Vaults'
+vault-env resolves `vault:` references, `op run` resolves `op://`, and vals
+resolves `ref+`. docuconf reads the environment as the process sees it after
+injection, so injected values are validated like any other, and it never
+resolves a reference itself (SPEC §4.5.1). If the injector did not run, a
+secret variable still holds the reference; docuconf reports that as
+`invalid_type`, naming the scheme but never the value:
+
+```
+  - DATABASE_URL [invalid_type]: holds an unresolved vault: reference; the injector that should resolve it did not run
+```
+
+## Config-file overlays
+
+There is no overlay API (SPEC §4.7). Elixir's `config/*.exs` files are
+compiled into the release and `config/runtime.exs` is code, not a layered
+file stack, so there is nowhere to put a platform-mounted overlay between
+the app's files and the environment. A declaration cannot carry `overlays`,
+and the exported contract never has any. Mount a `config_file` input
+instead if the platform needs to supply structured configuration.
 
 ## Error codes
 

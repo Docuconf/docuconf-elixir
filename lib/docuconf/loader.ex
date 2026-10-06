@@ -100,7 +100,28 @@ defmodule Docuconf.Loader do
     end
   end
 
+  defp resolve(%Var{secret: true} = var, raw) do
+    case injector_scheme(raw) do
+      nil ->
+        Value.parse(var, raw)
+
+      scheme ->
+        {:error, :invalid_type,
+         "holds an unresolved #{scheme} reference; the injector that should resolve it did not run"}
+    end
+  end
+
   defp resolve(%Var{} = var, raw), do: Value.parse(var, raw)
+
+  # SPEC §4.5.1 and §11.2: platforms inject secrets (Bank-Vaults vault-env,
+  # `op run`, vals) before the process starts. A secret that still holds a
+  # reference means the injector did not run. The message names the scheme,
+  # never the value.
+  @injector_schemes ["vault:", "op://", "ref+"]
+
+  @doc false
+  def injector_scheme(raw) when is_binary(raw),
+    do: Enum.find(@injector_schemes, &String.starts_with?(raw, &1))
 
   defp environment(opts) do
     env = Keyword.get_lazy(opts, :env, &System.get_env/0)
