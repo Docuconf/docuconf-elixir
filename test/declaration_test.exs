@@ -54,6 +54,24 @@ defmodule Docuconf.DeclarationTest do
     assert text =~ "unknown options [:min_lenght]"
   end
 
+  test "item bounds apply to integer lists only, and must be ordered" do
+    text =
+      Enum.join(
+        problems("""
+        env :tags, {:list, :string}, description: "Tags to apply", item_max: 3
+        env :shards, {:list, :integer}, description: "Shard ids", item_min: 10, item_max: 1
+        env :ports, {:list, :integer}, description: "Port list", item_min: 1.5
+        env :ids, {:list, :integer}, description: "Some ids", item_max: 9, default: [1, 10]
+        """),
+        "\n"
+      )
+
+    assert text =~ "TAGS): item_min and item_max apply only to {:list, :integer}"
+    assert text =~ "SHARDS): item_min is greater than item_max"
+    assert text =~ "PORTS): item_min and item_max must be integers"
+    assert text =~ "IDS): default does not satisfy the variable's constraints (out_of_range"
+  end
+
   test "names must be upper snake case" do
     assert Enum.join(problems(~s|env :port, :integer, description: "Listen port", name: "port"|)) =~
              "name must match"

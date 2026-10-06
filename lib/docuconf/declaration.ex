@@ -20,6 +20,8 @@ defmodule Docuconf.Var do
     :items,
     :min_items,
     :max_items,
+    :item_min,
+    :item_max,
     :schema,
     :spec,
     :default,
@@ -102,7 +104,7 @@ defmodule Docuconf.Declaration do
     "duration" => [:min, :max, :unit],
     "url" => [:schemes],
     "enum" => [:values],
-    "list" => [:separator, :min_items, :max_items],
+    "list" => [:separator, :min_items, :max_items, :item_min, :item_max],
     "json" => [:schema]
   }
 
@@ -234,6 +236,8 @@ defmodule Docuconf.Declaration do
         separator: Keyword.get(opts, :separator, ","),
         min_items: opts[:min_items],
         max_items: opts[:max_items],
+        item_min: opts[:item_min],
+        item_max: opts[:item_max],
         unit: Keyword.get(opts, :unit, :millisecond),
         flag_warning: Keyword.get(opts, :flag_warning, true)
       }
@@ -354,6 +358,13 @@ defmodule Docuconf.Declaration do
        "minLength is greater than maxLength"},
       {v.min_items != nil and v.max_items != nil and v.min_items > v.max_items,
        "minItems is greater than maxItems"},
+      {v.type == "list" and v.items != "int" and (v.item_min != nil or v.item_max != nil),
+       "item_min and item_max apply only to {:list, :integer}"},
+      {(v.item_min != nil and not is_integer(v.item_min)) or
+         (v.item_max != nil and not is_integer(v.item_max)),
+       "item_min and item_max must be integers"},
+      {is_integer(v.item_min) and is_integer(v.item_max) and v.item_min > v.item_max,
+       "item_min is greater than item_max"},
       {v.schemes != nil and v.schemes == [], "schemes must not be empty"}
     ]
     |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)

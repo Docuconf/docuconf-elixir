@@ -257,6 +257,14 @@ defmodule Docuconf.Value do
       var.max_items && n > var.max_items ->
         {:error, :too_many_items, "has #{n} items, more than maxItems #{var.max_items}"}
 
+      var.item_min != nil and Enum.any?(v, &(&1 < var.item_min)) ->
+        i = Enum.find_index(v, &(&1 < var.item_min))
+        {:error, :out_of_range, "item #{i + 1} is below itemMin #{var.item_min}"}
+
+      var.item_max != nil and Enum.any?(v, &(&1 > var.item_max)) ->
+        i = Enum.find_index(v, &(&1 > var.item_max))
+        {:error, :out_of_range, "item #{i + 1} is above itemMax #{var.item_max}"}
+
       true ->
         :ok
     end

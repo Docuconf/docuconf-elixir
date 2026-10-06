@@ -18,7 +18,12 @@ defmodule Docuconf.VarsTest do
     env :poll, :duration, description: "Poll interval", unit: :duration, default: "1m30s"
     env :level, {:in, [:debug, :info]}, description: "Log level", default: :info
     env :origins, {:list, :string}, description: "CORS origins", min_items: 1, max_items: 2
-    env :ports, {:list, :integer}, description: "Worker ports", separator: ";"
+
+    env :ports, {:list, :integer},
+      description: "Worker ports",
+      separator: ";",
+      item_min: 1,
+      item_max: 65535
 
     env :limits, :json,
       description: "Rate limits",
@@ -146,6 +151,12 @@ defmodule Docuconf.VarsTest do
 
     # Valid secrets load normally.
     assert {:ok, %Env{api_token: ^secret}} = load(%{"API_TOKEN" => secret})
+  end
+
+  test "list items outside item_min and item_max are out_of_range" do
+    assert {:ok, %Env{ports: [1, 65535]}} = load(%{"PORTS" => "1;65535"})
+    assert codes(load(%{"PORTS" => "80;0"})) == [{"PORTS", :out_of_range}]
+    assert codes(load(%{"PORTS" => "65536"})) == [{"PORTS", :out_of_range}]
   end
 
   test "values are never trimmed" do

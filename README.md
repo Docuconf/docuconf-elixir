@@ -115,7 +115,7 @@ input, and `load/1`, `load!/1` and `export/1`.
 | `:duration` | `duration` (`go` encoding) | integer in `unit` | `min`, `max`, `unit` |
 | `:url` | `url` | string with `scheme://` | `schemes` |
 | `{:in, values}` | `enum` | string | |
-| `{:list, :string}`, `{:list, :integer}` | `list` (`csv` encoding) | list | `separator` (default `,`), `min_items`, `max_items` |
+| `{:list, :string}`, `{:list, :integer}` | `list` (`csv` encoding) | list | `separator` (default `,`), `min_items`, `max_items`; `item_min`, `item_max` (integer lists) |
 | `:json` | `json` | decoded JSON | `schema` |
 
 Every variable takes `description` (or `doc`; at least 5 characters, required),
@@ -134,6 +134,12 @@ Every variable takes `description` (or `doc`; at least 5 characters, required),
   quantifiers) are rejected at compile time. Matching follows RE2, not
   PCRE: `$` means end of text (not "before a final newline"), and `\d`,
   `\w`, `\s` and `\b` are ASCII-only.
+- **Item bounds**: `item_min` and `item_max` bound each item of a
+  `{:list, :integer}` and are exported as `itemMin` and `itemMax`. An item
+  outside them is `out_of_range`. Elixir integers are unbounded, so nothing
+  is exported automatically: every item is already checked against the
+  64-bit range the contract's `int` means. Set the bounds yourself when the
+  items go somewhere narrower, such as a port (`item_min: 1, item_max: 65535`).
 - **Empty strings** are present values for `:string` and unset for every
   other type. Values are never trimmed.
 - **JSON schemas** are a JSON Schema map, or a keyword spec in the

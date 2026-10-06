@@ -41,7 +41,11 @@ defmodule Docuconf.Test.SampleEnv do
     min_items: 1,
     max_items: 10
 
-  env :worker_ports, {:list, :integer}, description: "Ports the workers bind", separator: ";"
+  env :worker_ports, {:list, :integer},
+    description: "Ports the workers bind",
+    separator: ";",
+    item_min: 1,
+    item_max: 65535
 
   env :rate_limits, :json,
     description: "Default per-client rate limits",

@@ -90,7 +90,9 @@ defmodule Docuconf.CUE do
       {"encoding", "csv"},
       {"separator", v.separator},
       v.min_items && {"minItems", v.min_items},
-      v.max_items && {"maxItems", v.max_items}
+      v.max_items && {"maxItems", v.max_items},
+      v.item_min != nil && {"itemMin", v.item_min},
+      v.item_max != nil && {"itemMax", v.item_max}
     ]
 
   defp type_fields(%Var{type: "json"} = v), do: [v.schema && {"schema", v.schema}]
