@@ -174,6 +174,43 @@ defmodule Docuconf.VarsTest do
     refute written =~ "nope-secret"
   end
 
+  test "a secret holding an unresolved injector reference fails without printing it" do
+    dir = Path.join(System.tmp_dir!(), "docuconf-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    log = Path.join(dir, "termination-log")
+
+    refs = %{
+      "DATABASE_URL" => "vault:secret/data/orders#database_url",
+      "API_TOKEN" => "op://prod/partner/token"
+    }
+
+    assert {:error, e} = Env.load(env: refs, termination_log: log, warn: false)
+
+    assert Enum.map(e.violations, &{&1.input, &1.code, &1.message}) == [
+             {"API_TOKEN", :invalid_type,
+              "holds an unresolved op:// reference; the injector that should resolve it did not run"},
+             {"DATABASE_URL", :invalid_type,
+              "holds an unresolved vault: reference; the injector that should resolve it did not run"}
+           ]
+
+    written = File.read!(log)
+    assert written =~ "DATABASE_URL [invalid_type]: holds an unresolved vault: reference"
+
+    for {_, value} <- refs do
+      refute Exception.message(e) =~ value
+      refute written =~ value
+      refute inspect(e) =~ value
+    end
+
+    assert codes(load(%{"API_TOKEN" => "ref+awsssm://prod/token"})) == [
+             {"API_TOKEN", :invalid_type}
+           ]
+
+    # Only a prefix counts, and only on secrets.
+    assert {:ok, %Env{api_token: "tok_vault:x"}} = load(%{"API_TOKEN" => "tok_vault:x"})
+    assert {:ok, %Env{motd: "vault:not-a-secret"}} = load(%{"MOTD" => "vault:not-a-secret"})
+  end
+
   test "deprecated variables and secrets ending in a newline warn" do
     out =
       ExUnit.CaptureIO.capture_io(:stderr, fn ->

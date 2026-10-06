@@ -231,6 +231,29 @@ end
 or load in tests with an explicit environment: `MyApp.Env.load!(env: %{...})`.
 `mix docuconf.export` never needs the environment.
 
+## Injected secrets
+
+Platforms often inject secrets into the environment at runtime: Bank-Vaults'
+vault-env resolves `vault:` references, `op run` resolves `op://`, and vals
+resolves `ref+`. docuconf reads the environment as the process sees it after
+injection, so injected values are validated like any other, and it never
+resolves a reference itself (SPEC §4.5.1). If the injector did not run, a
+secret variable still holds the reference; docuconf reports that as
+`invalid_type`, naming the scheme but never the value:
+
+```
+  - DATABASE_URL [invalid_type]: holds an unresolved vault: reference; the injector that should resolve it did not run
+```
+
+## Config-file overlays
+
+There is no overlay API (SPEC §4.7). Elixir's `config/*.exs` files are
+compiled into the release and `config/runtime.exs` is code, not a layered
+file stack, so there is nowhere to put a platform-mounted overlay between
+the app's files and the environment. A declaration cannot carry `overlays`,
+and the exported contract never has any. Mount a `config_file` input
+instead if the platform needs to supply structured configuration.
+
 ## Error codes
 
 `missing_required`, `invalid_type`, `out_of_range`, `pattern_mismatch`,
