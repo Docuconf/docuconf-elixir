@@ -6,20 +6,18 @@ a `v*` tag is pushed.
 
 ## Before the first release
 
-1. **Choose a licence.** Add a `LICENSE` file and `licenses: ["..."]` to
-   `package/0` in `mix.exs`. `mix hex.build` refuses to build without it,
-   so the release workflow fails until this is done.
-2. **Create the Hex package owner.** Register the organisation account on
+1. **Create the Hex package owner.** Register the organisation account on
    hex.pm (or use a maintainer account) that will own `docuconf`.
-3. **Create an API key.** Hex has no OIDC trusted publishing, so CI needs
+2. **Create an API key.** Hex has no OIDC trusted publishing, so CI needs
    a key. Create one limited to publishing:
    `mix hex.user key generate --key-name docuconf-elixir-ci --permission api:write`
    (or on hex.pm under Dashboard, Keys). Store it as the `HEX_API_KEY`
    secret of a GitHub environment named `hex`. Restrict that environment to
    `v*` tags and, if you like, require a reviewer.
-4. Check the package locally: `mix hex.build` lists the files and metadata
+3. Check the package locally: `mix hex.build` lists the files and metadata
    that would be published (`lib`, `mix.exs`, `README.md`, `RELEASING.md`,
-   `.formatter.exs`), and `mix docs` builds the documentation.
+   `LICENSE`, `.formatter.exs`) with `licenses: ["MIT"]`, and `mix docs`
+   builds the documentation.
 
 ## Each release
 
