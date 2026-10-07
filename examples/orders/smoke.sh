@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts the orders example twice: once with a valid environment (checks
 # /healthz and that /config hides the secret), once with PORT=0 and no
-# DATABASE_URL (checks that boot fails and names both problems).
+# DATABASE_URL (checks that boot fails cleanly and names both problems).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -53,5 +53,12 @@ if grep -qF "smoke-secret-4f2a" <<<"$output"; then
   echo "FAIL: the error output contains the secret" >&2
   exit 1
 fi
+# A clean failure: the problem list, no stack trace, no crash dump.
+grep -qF "docuconf: 2 configuration problems:" <<<"$output" || { echo "FAIL: no problem summary" >&2; exit 1; }
+if grep -qE '\*\* \(|erl_eval|stacktrace' <<<"$output"; then
+  echo "FAIL: the error output has a stack trace" >&2
+  exit 1
+fi
+[ ! -e erl_crash.dump ] || { echo "FAIL: erl_crash.dump was written" >&2; exit 1; }
 
 echo "smoke test passed"

@@ -14,7 +14,7 @@ and builds against the SDK in this repository (`{:docuconf, path: "../.."}`).
 | Variable | Type | Rules |
 |---|---|---|
 | `PORT` | int | 1–65535, default 8080 |
-| `LOG_LEVEL` | enum | `debug`, `info`, `warn`, `error`; default `info` |
+| `LOG_LEVEL` | enum (atoms in Elixir) | `debug`, `info`, `warning`, `error`; default `info` |
 | `DATABASE_URL` | url | secret, required, scheme `postgres` |
 | `ALLOWED_ORIGINS` | list of strings (comma-separated) | at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration (`30s`, `1m30s`) | 1s–5m, default `30s` |
@@ -41,19 +41,14 @@ $ curl localhost:8080/config
 ## When the configuration is wrong
 
 With `PORT=0` and no `DATABASE_URL`, the app does not start. Every problem is
-reported at once, with a stable error code, and the process exits with
-status 1:
+reported at once, with a stable error code and no stack trace, and the
+process exits with status 1:
 
 ```
 $ PORT=0 mix run --no-halt
-** (Docuconf.ValidationError) docuconf: 2 configuration problems:
+docuconf: 2 configuration problems:
   - DATABASE_URL [missing_required]: required, but not set
   - PORT [out_of_range]: "0" is below min 1
-    (docuconf 0.1.0) lib/docuconf.ex:236: Docuconf.load!/2
-    /home/user/docuconf-elixir/examples/orders/config/runtime.exs:5: (file)
-    (stdlib 6.2.2.5) erl_eval.erl:919: :erl_eval.do_apply/7
-    (stdlib 6.2.2.5) erl_eval.erl:663: :erl_eval.expr/6
-    (stdlib 6.2.2.5) erl_eval.erl:271: :erl_eval.exprs/6
 ```
 
 In Kubernetes the same report is written to `/dev/termination-log`, so

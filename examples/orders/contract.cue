@@ -35,7 +35,7 @@ contract.#Contract & {
 		LOG_LEVEL: {
 			type: "enum"
 			description: "Minimum log level"
-			values: ["debug", "info", "warn", "error"]
+			values: ["debug", "info", "warning", "error"]
 			default: "info"
 		}
 		PORT: {
