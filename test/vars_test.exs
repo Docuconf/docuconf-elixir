@@ -162,6 +162,78 @@ defmodule Docuconf.VarsTest do
     assert codes(load(%{"PORTS" => "65536"})) == [{"PORTS", :out_of_range}]
   end
 
+  defmodule Lengths do
+    use Docuconf, name: "ledger"
+
+    env :callback, :url,
+      description: "Where to report each run",
+      schemes: ["https"],
+      max_length: 24
+
+    env :limits, :json, description: "Run limits as a JSON object", max_length: 16
+
+    env :branches, {:list, :string},
+      description: "Branch codes",
+      item_min_length: 2,
+      item_max_length: 4
+
+    env :codes, {:list, :string},
+      description: "Codes as JSON",
+      encoding: :json,
+      item_max_length: 4
+
+    secret :db_url, :url, description: "Database connection string", max_length: 30
+  end
+
+  defp load_lengths(env), do: Lengths.load(env: env, termination_log: false, warn: false)
+
+  defp messages({:error, %Docuconf.ValidationError{violations: vs}}),
+    do: Enum.map_join(vs, "\n", & &1.message)
+
+  test "maxLength on url and json, and item lengths, count code points" do
+    assert {:ok, %Lengths{callback: "https://例え.jp/日本語の道/一二三四"}} =
+             load_lengths(%{"CALLBACK" => "https://例え.jp/日本語の道/一二三四"})
+
+    assert {:ok, %Lengths{limits: %{"n" => "日本語の道路xy"}}} =
+             load_lengths(%{"LIMITS" => ~s|{"n":"日本語の道路xy"}|})
+
+    # An emoji is 1 code point, 2 UTF-16 units.
+    assert {:ok, %Lengths{branches: ["BE", "ZÜ01", "😀😀"], codes: ["😀😀😀😀"]}} =
+             load_lengths(%{"BRANCHES" => "BE,ZÜ01,😀😀", "CODES" => ~s|["😀😀😀😀"]|})
+
+    r =
+      load_lengths(%{
+        "CALLBACK" => "https://a.example/runs/42",
+        "LIMITS" => ~s|{"max":123456789}|,
+        "BRANCHES" => "BE,ZÜRICH",
+        "CODES" => ~s|["BE","GENEVA"]|,
+        "DB_URL" => "postgres://app:s3cr3t@db:5432/app"
+      })
+
+    assert Enum.sort(codes(r)) == [
+             {"BRANCHES", :out_of_range},
+             {"CALLBACK", :out_of_range},
+             {"CODES", :out_of_range},
+             {"DB_URL", :out_of_range},
+             {"LIMITS", :out_of_range}
+           ]
+
+    text = messages(r)
+    assert text =~ ~s|"https://a.example/runs/42" is 25 characters, longer than max_length 24|
+    assert text =~ "is 17 characters of JSON, longer than max_length 16"
+    assert text =~ ~s|item 2 ("ZÜRICH") is 6 characters, longer than item_max_length 4|
+    # A secret reports its length, never its value.
+    assert text =~ "value is 33 characters, longer than max_length 30"
+    refute text =~ "s3cr3t"
+
+    # Whitespace in a json value counts, as received.
+    assert codes(load_lengths(%{"LIMITS" => ~s|{ "max": 123456 }|})) == [
+             {"LIMITS", :out_of_range}
+           ]
+
+    assert codes(load_lengths(%{"BRANCHES" => "BE,B"})) == [{"BRANCHES", :out_of_range}]
+  end
+
   defmodule Encoded do
     use Docuconf, name: "encoded"
 

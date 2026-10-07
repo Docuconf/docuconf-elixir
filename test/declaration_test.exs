@@ -72,6 +72,53 @@ defmodule Docuconf.DeclarationTest do
     assert text =~ "IDS): default does not satisfy the variable's constraints (out_of_range"
   end
 
+  test "length limits apply to the right types, must be ordered and hold the default" do
+    text =
+      Enum.join(
+        problems("""
+        env :ports, {:list, :integer}, description: "Ports to open", item_max_length: 5
+        env :flag, :boolean, description: "A boolean flag", max_length: 5
+        env :name, :string, description: "A plain name", item_min_length: 1
+        env :codes, {:list, :string}, description: "Branch codes", item_min_length: 5, item_max_length: 4
+        env :neg, :url, description: "Negative limit", max_length: -1
+        env :site, :url, description: "Default too long", max_length: 10, default: "https://example.com"
+        env :branches, {:list, :string}, description: "Default item", item_max_length: 4, default: ["BE", "ZÜRICH"]
+        env :regions, {:list, :string}, description: "Default item", item_min_length: 2, default: ["B"]
+        env :limits, :json, description: "Default JSON", max_length: 16, default: %{"max" => 123_456_789}
+        """),
+        "\n"
+      )
+
+    assert text =~ "PORTS): item_min_length and item_max_length apply only to {:list, :string}"
+    assert text =~ "unknown option :max_length for :boolean"
+    assert text =~ "unknown option :item_min_length for :string"
+    assert text =~ "CODES): item_min_length is greater than item_max_length"
+    assert text =~ "NEG): lengths must be non-negative integers"
+
+    assert text =~
+             ~s|SITE): default does not satisfy the variable's constraints (out_of_range: "https://example.com" is 19 characters, longer than max_length 10)|
+
+    assert text =~
+             ~s|BRANCHES): default does not satisfy the variable's constraints (out_of_range: item 2 ("ZÜRICH") is 6 characters, longer than item_max_length 4)|
+
+    assert text =~
+             ~s|REGIONS): default does not satisfy the variable's constraints (out_of_range: item 1 ("B") is 1 characters, shorter than item_min_length 2)|
+
+    # The compact JSON {"max":123456789} is 17 characters.
+    assert text =~
+             "LIMITS): default does not satisfy the variable's constraints (out_of_range: is 17 characters of JSON, longer than max_length 16)"
+  end
+
+  test "defaults at the limits, counted in code points, compile" do
+    # 24 characters but more bytes; an emoji is 1 code point (2 UTF-16
+    # units); {"a":"<&>"} is 11 characters, with no HTML escaping.
+    compile("""
+    env :site, :url, description: "Default at the limit", max_length: 24, default: "https://例え.jp/日本語の道/一二三四"
+    env :branches, {:list, :string}, description: "Branch codes", item_max_length: 4, default: ["ZÜ01", "日本", "😀😀😀😀"]
+    env :limits, :json, description: "Run limits", max_length: 11, default: %{"a" => "<&>"}
+    """)
+  end
+
   test "encodings are checked" do
     text =
       Enum.join(

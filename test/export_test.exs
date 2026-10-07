@@ -168,6 +168,41 @@ defmodule Docuconf.ExportTest do
       end
     end
 
+    test "length limits are exported and pass cue vet -c", ctx do
+      [{mod, _}] =
+        Code.compile_string("""
+        defmodule Docuconf.ExportTest.Lengths do
+          use Docuconf, name: "lengths"
+          env :callback_url, :url, description: "Where to report the run", schemes: ["https"], max_length: 40,
+            default: "https://ledger.example.com/runs/callback"
+          env :limits, :json, description: "Run limits as JSON", max_length: 35
+          env :branches, {:list, :string}, description: "Branch codes", min_items: 1, max_items: 8,
+            item_min_length: 2, item_max_length: 4, default: ["ZÜ01", "BE", "GE02"]
+        end
+        """)
+
+      contract = mod.export()
+      words = contract |> String.split() |> Enum.join(" ")
+      assert words =~ "maxLength: 40"
+      assert words =~ "maxLength: 35"
+      assert words =~ "itemMinLength: 2"
+      assert words =~ "itemMaxLength: 4"
+
+      if ctx[:cue] do
+        assert {"", 0} == vet(ctx, contract)
+        # The meta-schema checks the new fields: item lengths on an int list
+        # are rejected.
+        bad =
+          contract
+          |> String.replace(~s|"ZÜ01", "BE", "GE02"|, "1")
+          |> String.replace(~r/items:(\s+)"string"/, ~s|items:\\1"int"|)
+
+        assert bad =~ ~s|"int"|
+        assert {_, status} = vet(ctx, bad)
+        assert status != 0
+      end
+    end
+
     defp vet(%{cue: cue, spec: spec}, contract) do
       dir = tmp_dir()
       File.cp_r!(Path.join(spec, "cue.mod"), Path.join(dir, "cue.mod"))

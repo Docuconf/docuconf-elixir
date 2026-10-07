@@ -221,14 +221,34 @@ defmodule Docuconf.Value do
     shown = if raw == nil, do: inspect(v), else: shown(var, raw)
     shown = if var.secret, do: "value", else: shown
 
-    case constraint(var, v, shown) do
-      :ok -> {:ok, v}
-      {:error, code, msg} -> {:error, code, msg}
+    with :ok <- json_length(var, v, raw),
+         :ok <- constraint(var, v, shown) do
+      {:ok, v}
     end
   end
 
+  # Lengths count characters: Unicode code points, never bytes or graphemes
+  # (SPEC §4.3).
+  defp chars(s) when is_binary(s), do: s |> String.to_charlist() |> length()
+
+  # maxLength on a json value bounds its wire string: the raw value as
+  # received, whitespace included, or the compact JSON (no HTML escaping, as
+  # the platform renders it) for a default or a config value (SPEC §4.3).
+  defp json_length(%Var{type: "json", max_length: max} = var, v, raw) when is_integer(max) do
+    wire = if is_binary(raw), do: raw, else: JSON.encode!(v)
+    n = chars(wire)
+
+    if n > max,
+      do:
+        {:error, :out_of_range,
+         "is #{n} characters of JSON, longer than #{Var.opt_name(var, "max_length", "maxLength")} #{max}"},
+      else: :ok
+  end
+
+  defp json_length(_var, _v, _raw), do: :ok
+
   defp constraint(%Var{type: "string"} = var, v, shown) do
-    len = if is_binary(v) and String.valid?(v), do: length(String.to_charlist(v)), else: 0
+    len = if is_binary(v) and String.valid?(v), do: chars(v), else: 0
 
     cond do
       not is_binary(v) ->
@@ -303,6 +323,10 @@ defmodule Docuconf.Value do
         {:error, :invalid_scheme,
          "scheme #{inspect(scheme)} is not one of #{Enum.join(var.schemes, ", ")}"}
 
+      var.max_length && chars(v) > var.max_length ->
+        {:error, :out_of_range,
+         "#{shown} is #{chars(v)} characters, longer than #{Var.opt_name(var, "max_length", "maxLength")} #{var.max_length}"}
+
       true ->
         :ok
     end
@@ -342,6 +366,9 @@ defmodule Docuconf.Value do
         {:error, :out_of_range,
          "item #{i + 1} is above #{Var.opt_name(var, "item_max", "itemMax")} #{var.item_max}"}
 
+      var.items == "string" ->
+        item_lengths(var, v)
+
       true ->
         :ok
     end
@@ -359,6 +386,30 @@ defmodule Docuconf.Value do
             else: problems
 
         {:error, :schema_mismatch, "does not match its schema: " <> Enum.join(detail, "; ")}
+    end
+  end
+
+  # Each item after splitting, so a separator never counts. The first item
+  # out of bounds is reported; a secret's item is never shown.
+  defp item_lengths(var, items) do
+    lo = var.item_min_length || 0
+    hi = var.item_max_length
+
+    case Enum.find_index(items, &(chars(&1) < lo or (hi != nil and chars(&1) > hi))) do
+      nil ->
+        :ok
+
+      i ->
+        item = Enum.at(items, i)
+        n = chars(item)
+        shown = if var.secret, do: "", else: " (#{inspect(item)})"
+
+        bound =
+          if n < lo,
+            do: "shorter than #{Var.opt_name(var, "item_min_length", "itemMinLength")} #{lo}",
+            else: "longer than #{Var.opt_name(var, "item_max_length", "itemMaxLength")} #{hi}"
+
+        {:error, :out_of_range, "item #{i + 1}#{shown} is #{n} characters, #{bound}"}
     end
   end
 

@@ -145,6 +145,64 @@ defmodule Docuconf.ContractTest do
     assert_raise DeclarationError, fn -> Contract.load!(Map.put(@contract, "kind", "X")) end
   end
 
+  test "length limits on url, json and string list items" do
+    contract =
+      Map.put(@contract, "vars", %{
+        "CALLBACK" => %{"type" => "url", "description" => "Callback URL", "maxLength" => 24},
+        "LIMITS" => %{"type" => "json", "description" => "Run limits", "maxLength" => 16},
+        "BRANCHES" => %{
+          "type" => "list",
+          "description" => "Branch codes",
+          "items" => "string",
+          "encoding" => "indexed",
+          "itemMinLength" => 2,
+          "itemMaxLength" => 4
+        }
+      })
+
+    assert {:ok, values} =
+             load(
+               %{
+                 "CALLBACK" => "https://例え.jp/日本語の道/一二三四",
+                 "BRANCHES__0" => "ZÜ01",
+                 "BRANCHES__1" => "日本"
+               },
+               contract
+             )
+
+    assert Values.to_map(values)["BRANCHES"] == ["ZÜ01", "日本"]
+
+    r =
+      load(
+        %{
+          "CALLBACK" => "https://a.example/runs/42",
+          "LIMITS" => ~s|{ "max": 123456 }|,
+          "BRANCHES__0" => "BE",
+          "BRANCHES__1" => "GENEVA"
+        },
+        contract
+      )
+
+    assert Enum.sort(codes(r)) == [
+             {"BRANCHES", :out_of_range},
+             {"CALLBACK", :out_of_range},
+             {"LIMITS", :out_of_range}
+           ]
+
+    bad =
+      put_in(contract, ["vars", "PORTS"], %{
+        "type" => "list",
+        "description" => "Ports to open",
+        "items" => "int",
+        "itemMaxLength" => 5
+      })
+
+    assert {:error, %DeclarationError{problems: ps}} = load(%{}, bad)
+
+    assert Enum.join(ps, "\n") =~
+             "(PORTS): itemMinLength and itemMaxLength apply only to {:list, :string}"
+  end
+
   describe "file inputs" do
     setup do
       root = Path.join(System.tmp_dir!(), "docuconf-cf-#{System.unique_integer([:positive])}")
