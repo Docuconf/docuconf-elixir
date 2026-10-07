@@ -130,7 +130,8 @@ Every variable takes `description` (or `doc`; at least 5 characters, required),
   A value that is not a whole number of the unit is rejected.
 - **Encodings** (SPEC §5) say how the platform writes a list or duration
   into the environment. Lists: `:csv` (the default, joined by `separator`),
-  `:json` (`["a","b"]`) or `:indexed` (`NAME__0`, `NAME__1`, ...).
+  `:json` (`["a","b"]`) or `:indexed` (`NAME__0`, `NAME__1`, ...; items
+  must be numbered from 0 with no gap, or the list is `invalid_type`).
   Durations: `:go` (the default), `:iso8601` (`PT1M30S`), `:seconds` (`90`)
   or `:timespan` (`00:01:30`). The contract records the encoding, and the
   platform renders to it.

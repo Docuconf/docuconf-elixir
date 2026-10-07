@@ -52,7 +52,7 @@ defmodule Docuconf.ContractTest do
       "TIMEOUT" => "00:01:30.5",
       "PARTITIONS__0" => "3",
       "PARTITIONS__1" => "7",
-      "PARTITIONS__3" => "99",
+      "PARTITIONS__HOST" => "not an item",
       "TAGS" => ~s(["a","b"]),
       "TOKEN" => "tok_12345678"
     }
