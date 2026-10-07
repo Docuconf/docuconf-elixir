@@ -40,11 +40,11 @@ defmodule Docuconf.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url, "Specification" => "https://docuconf.dev"},
-      files: ~w(lib mix.exs README.md RELEASING.md LICENSE .formatter.exs)
+      files: ~w(lib mix.exs README.md CHANGELOG.md RELEASING.md LICENSE .formatter.exs)
     ]
   end
 
   defp docs do
-    [main: "readme", extras: ["README.md", "RELEASING.md"], source_ref: "v#{@version}"]
+    [main: "readme", extras: ["README.md", "CHANGELOG.md", "RELEASING.md"], source_ref: "v#{@version}"]
   end
 end

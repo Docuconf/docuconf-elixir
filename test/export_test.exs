@@ -9,11 +9,31 @@ defmodule Docuconf.ExportTest do
     dir
   end
 
+  # metadata.generator.version is the package version, which every release PR
+  # bumps, so comparisons with the committed golden file ignore its value.
+  defp without_generator_version(cue) do
+    Regex.replace(
+      ~r/(generator:\s*\{[^{}]*?\bversion:\s*)"[^"]*"/,
+      cue,
+      ~s(\\1"<generator-version>")
+    )
+  end
+
   test "the sample export matches the golden file" do
     out = Docuconf.Test.SampleEnv.export()
 
     if System.get_env("UPDATE_GOLDEN") == "1", do: File.write!(@golden, out)
-    assert out == File.read!(@golden)
+    assert without_generator_version(out) == without_generator_version(File.read!(@golden))
+  end
+
+  test "the golden comparison ignores only the generator version" do
+    out = Docuconf.Test.SampleEnv.export()
+    bumped = Regex.replace(~r/(\bversion:\s*)"[^"]*"/, out, ~s(\\1"99.0.0"), global: false)
+    assert bumped != out
+    assert without_generator_version(bumped) == without_generator_version(out)
+
+    refute without_generator_version(String.replace(out, ~s("elixir"), ~s("erlang"))) ==
+             without_generator_version(out)
   end
 
   test "export is deterministic and sorted by name" do
