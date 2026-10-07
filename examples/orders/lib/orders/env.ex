@@ -1,48 +1,34 @@
 defmodule Orders.Env do
-  @moduledoc "Every input the orders service reads from its environment."
+  @moduledoc "Every environment variable the orders service reads."
   use Docuconf, name: "orders"
 
-  env(:port, :integer, description: "HTTP listen port", default: 4000, min: 1, max: 65535)
+  env :port, :integer, description: "HTTP listen port", default: 8080, min: 1, max: 65535
 
-  secret(:database_url, :url,
-    description: "Primary Postgres connection string",
-    required: true,
-    schemes: ["postgres", "ecto"]
-  )
-
-  env(:pool_size, :integer, description: "Database connection pool size", default: 10, min: 1)
-  env(:checkout_timeout, :duration, description: "Checkout request timeout", default: "15s")
-
-  env(:log_level, {:in, ~w(debug info warning error)},
+  env :log_level, {:in, ~w(debug info warn error)},
     description: "Minimum log level",
     default: "info"
-  )
 
-  config_file(:pricing,
-    format: :json,
-    description: "Pricing rules: currency and discount tiers",
+  # A secret: docuconf never prints its value, and the contract tells the
+  # platform to supply it from a Kubernetes Secret.
+  secret :database_url, :url,
+    description: "Postgres connection string",
     required: true,
-    path: "/etc/orders/pricing/pricing.json",
-    schema: [
-      currency: [type: :string, required: true, pattern: "^[A-Z]{3}$"],
-      tiers: [
-        type:
-          {:list,
-           {:map,
-            [
-              min_total: [type: :pos_integer, required: true],
-              percent: [type: :integer, required: true, min: 0, max: 100]
-            ]}},
-        required: true
-      ]
-    ]
-  )
+    schemes: ["postgres"]
 
-  tls_file(:serving_tls,
-    description: "Certificate the API serves HTTPS with",
-    path: "/etc/orders/tls",
-    dns_names: ["orders.internal"],
-    key_algorithms: [:ecdsa, :rsa],
-    min_remaining: "720h"
-  )
+  env :allowed_origins, {:list, :string},
+    description: "Origins allowed to call the API (CORS)",
+    min_items: 1,
+    default: ["http://localhost:3000"]
+
+  env :request_timeout, :duration,
+    description: "Time limit for one request",
+    min: "1s",
+    max: "5m",
+    default: "30s"
+
+  env :worker_count, :integer,
+    description: "Order processing workers",
+    min: 1,
+    max: 64,
+    default: 4
 end

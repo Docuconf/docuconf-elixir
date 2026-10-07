@@ -45,7 +45,7 @@ defmodule Docuconf.Loader do
             else: warns
 
         warns =
-          if raw != nil and var.secret and
+          if (is_binary(raw) or is_list(raw)) and var.secret and
                Enum.any?(List.wrap(raw), &String.ends_with?(&1, "\n")),
              do:
                warns ++
@@ -89,16 +89,37 @@ defmodule Docuconf.Loader do
   end
 
   # The raw value of a variable: its env string, or the items of an indexed
-  # list (NAME__0, NAME__1, ... up to the first missing index). nil is unset.
+  # list (NAME__0, NAME__1, ...). nil is unset. SPEC §5: only a decimal index
+  # with no leading zero is an item (NAME__HOST is not), and items must be
+  # numbered from 0 with no gap; a gap is `{:error, :invalid_type, message}`,
+  # since a host that stops at it and one that skips it read different lists.
   @doc false
   def raw_value(env, %Var{type: "list", encoding: "indexed", name: name}) do
-    items =
-      0
-      |> Stream.iterate(&(&1 + 1))
-      |> Stream.map(&Map.get(env, "#{name}__#{&1}"))
-      |> Enum.take_while(&(&1 != nil))
+    prefix = name <> "__"
 
-    if items == [], do: nil, else: items
+    indexed =
+      for {key, value} <- env,
+          String.starts_with?(key, prefix),
+          suffix = binary_part(key, byte_size(prefix), byte_size(key) - byte_size(prefix)),
+          suffix =~ ~r/\A(?:0|[1-9][0-9]*)\z/,
+          into: %{},
+          do: {String.to_integer(suffix), value}
+
+    count = map_size(indexed)
+
+    case Enum.find(0..(count - 1)//1, &(not Map.has_key?(indexed, &1))) do
+      nil when count == 0 ->
+        nil
+
+      nil ->
+        Enum.map(0..(count - 1), &Map.fetch!(indexed, &1))
+
+      missing ->
+        found = indexed |> Map.keys() |> Enum.sort() |> Enum.map_join(", ", &"#{prefix}#{&1}")
+
+        {:error, :invalid_type,
+         "has items #{found} but no #{prefix}#{missing}; items must be numbered from 0 with no gap"}
+    end
   end
 
   def raw_value(env, %Var{} = var) do
@@ -111,6 +132,8 @@ defmodule Docuconf.Loader do
 
   defp public(_var, nil), do: nil
   defp public(var, v), do: Value.to_public(var, v)
+
+  defp resolve(_var, {:error, _code, _message} = error), do: error
 
   defp resolve(%Var{} = var, nil) do
     cond do

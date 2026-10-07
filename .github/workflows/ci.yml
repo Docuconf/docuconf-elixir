@@ -57,6 +57,48 @@ jobs:
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
 
-      - name: Example app's contract is up to date
+  example:
+    name: examples/orders
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The contract meta-schema (spec/cue) lives in docuconf-go.
+      - uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          path: docuconf-go
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install cue
+        run: go install cuelang.org/go/cmd/cue@v0.17.1
+
+      - name: Build
+        working-directory: examples/orders
+        run: |
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+
+      - name: Contract is up to date
         working-directory: examples/orders
         run: mix docuconf.export --check
+
+      - name: Contract passes the meta-schema
+        run: |
+          dir="$(mktemp -d)"
+          cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract "$dir/"
+          mkdir "$dir/orders"
+          cp examples/orders/contract.cue "$dir/orders/"
+          cd "$dir" && cue vet -c ./orders
+
+      - name: Smoke test
+        run: examples/orders/smoke.sh

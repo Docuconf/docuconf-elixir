@@ -199,6 +199,25 @@ defmodule Docuconf.VarsTest do
            ]
   end
 
+  test "indexed lists start at 0, have no gap, and ignore non-numeric suffixes" do
+    load = &Encoded.load(env: &1, termination_log: false, warn: false)
+
+    assert {:ok, %Encoded{brokers: ["a"]}} =
+             load.(%{"BROKERS__0" => "a", "BROKERS__HOST" => "x", "BROKERS__01" => "y"})
+
+    for env <- [
+          %{"BROKERS__0" => "a", "BROKERS__2" => "c"},
+          %{"BROKERS__1" => "b"}
+        ] do
+      assert {:error, %{violations: [v]}} = load.(env)
+      assert {v.input, v.code} == {"BROKERS", :invalid_type}
+      assert v.message =~ "no gap"
+    end
+
+    assert {:error, %{violations: [v]}} = load.(%{"BROKERS__0" => "a", "BROKERS__2" => "c"})
+    assert v.message =~ "no BROKERS__1"
+  end
+
   test "values are never trimmed" do
     assert codes(load(%{"PORT" => "8080\n"})) == [{"PORT", :invalid_type}]
     assert {:ok, %Env{motd: " hi \n"}} = load(%{"MOTD" => " hi \n"})
