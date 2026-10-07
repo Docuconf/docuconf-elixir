@@ -26,13 +26,22 @@ defmodule Docuconf.Var do
     :schema,
     :spec,
     :default,
+    :line,
     required: false,
+    atom_values: false,
+    origin: :dsl,
     secret: false,
     has_default: false,
     separator: ",",
     unit: :millisecond,
     flag_warning: true
   ]
+
+  @doc false
+  # Option names in messages: the DSL's own (`min_length`) for a `use
+  # Docuconf` declaration, the contract's (`minLength`) in contract-first mode.
+  def opt_name(%{origin: :contract}, _dsl, spec), do: spec
+  def opt_name(_input, dsl, _spec), do: dsl
 end
 
 defmodule Docuconf.FileInput do
@@ -59,12 +68,21 @@ defmodule Docuconf.FileInput do
     :pattern,
     :min_length,
     :max_length,
+    :line,
     required: false,
     secret: false,
+    origin: :dsl,
     reload: "restart",
     require_ca: false,
     min_certificates: 1
   ]
+
+  @doc false
+  # Does the loaded value carry the secret itself? A secret config or text
+  # file's data is its content. TLS and keystore inputs are secret because
+  # of their keys, but the loaded value holds only paths and certificates.
+  def secret_data?(%{secret: true, type: t}) when t in ["config", "text"], do: true
+  def secret_data?(_), do: false
 end
 
 defmodule Docuconf.Declaration do
@@ -80,7 +98,7 @@ defmodule Docuconf.Declaration do
           app_version: String.t() | nil,
           vars: [Var.t()],
           files: [FileInput.t()],
-          warnings: [String.t()]
+          warnings: [{pos_integer() | nil, String.t()}]
         }
   defstruct [:name, :app_version, vars: [], files: [], warnings: []]
 
@@ -136,17 +154,33 @@ defmodule Docuconf.Declaration do
                     /var /var/lib /var/run)
 
   @doc """
-  Builds and checks a declaration. `vars` are `{field, type, opts}` and
-  `files` `{field, file_type, opts}` in declaration order. Returns
-  `{:ok, declaration}` or `{:error, problems}`.
+  Builds and checks a declaration. `vars` are `{field, type, opts}` (or
+  `{field, type, opts, line}`) and `files` `{field, file_type, opts}` (or
+  with a line) in declaration order. Returns `{:ok, declaration}` or
+  `{:error, problems}`.
   """
-  @spec build(keyword(), [{atom(), term(), keyword()}], [
-          {atom() | String.t(), String.t(), keyword()}
-        ]) ::
-          {:ok, t()} | {:error, [String.t()]}
+  @spec build(keyword(), [tuple()], [tuple()]) :: {:ok, t()} | {:error, [String.t()]}
   def build(opts, vars, files) do
-    {var_structs, var_problems} = vars |> Enum.map(&build_var/1) |> collect()
-    {file_structs, file_problems} = files |> Enum.map(&build_file(&1, var_structs)) |> collect()
+    case build_located(opts, vars, files) do
+      {:ok, decl} -> {:ok, decl}
+      {:error, problems} -> {:error, Enum.map(problems, &elem(&1, 1))}
+    end
+  end
+
+  @doc false
+  # Like build/3, but each problem is `{line | nil, message}`, and each
+  # warning in the declaration is `{line | nil, message}` too, so the
+  # compiler can point at the declaration that caused it.
+  def build_located(opts, vars, files) do
+    origin = Keyword.get(opts, :origin, :dsl)
+
+    {var_structs, var_problems} =
+      vars |> Enum.map(&located(&1, fn d -> build_var(d, origin) end)) |> collect()
+
+    {file_structs, file_problems} =
+      files
+      |> Enum.map(&located(&1, fn d -> build_file(d, var_structs, origin) end))
+      |> collect()
 
     name = opts[:name]
 
@@ -163,14 +197,18 @@ defmodule Docuconf.Declaration do
       end
 
     problems =
-      name_problems ++ var_problems ++ file_problems ++ cross_checks(var_structs, file_structs)
+      Enum.map(name_problems, &{nil, &1}) ++
+        var_problems ++
+        file_problems ++ Enum.map(cross_checks(var_structs, file_structs), &{nil, &1})
 
     if problems == [] do
       warnings =
-        for %Var{flag_warning: true, name: n} <- var_structs,
+        for %Var{flag_warning: true, name: n, line: line} <- var_structs,
             Regex.match?(~r/^(FF|FEATURE|FEATURE_FLAG|ENABLE)_/, n) do
-          "#{n} looks like a feature flag. Flags that change without a rollout belong in a flag service " <>
-            "(OpenFeature), not the environment (SPEC §10). Pass flag_warning: false if it is a deploy-time switch."
+          {line,
+           "#{n} looks like a feature flag. Flags that change without a rollout belong in a flag service " <>
+             "(OpenFeature), not the environment (SPEC §10). Pass flag_warning: false on this declaration " <>
+             "if it is a deploy-time switch."}
         end
 
       {:ok,
@@ -186,6 +224,15 @@ defmodule Docuconf.Declaration do
     end
   end
 
+  defp located({field, type, opts}, fun), do: located({field, type, opts, nil}, fun)
+
+  defp located({field, type, opts, line}, fun) do
+    case fun.({field, type, opts}) do
+      {:ok, s} -> {:ok, %{s | line: line}}
+      {:error, ps} -> {:error, Enum.map(ps, &{line, &1})}
+    end
+  end
+
   defp collect(results) do
     Enum.reduce(results, {[], []}, fn
       {:ok, s}, {ok, probs} -> {ok ++ [s], probs}
@@ -195,8 +242,13 @@ defmodule Docuconf.Declaration do
 
   # ---- variables -----------------------------------------------------------
 
+  @type_names ~w(string integer float boolean duration url json pos_integer non_neg_integer)a
+
   defp normalize_type(:string), do: {"string", %{}}
   defp normalize_type(t) when t in [:integer, :int], do: {"int", %{}}
+  # NimbleOptions names, as sugar for a lower bound.
+  defp normalize_type(:pos_integer), do: {"int", %{min: 1}}
+  defp normalize_type(:non_neg_integer), do: {"int", %{min: 0}}
   defp normalize_type(:float), do: {"float", %{}}
   defp normalize_type(t) when t in [:boolean, :bool], do: {"bool", %{}}
   defp normalize_type(:duration), do: {"duration", %{}}
@@ -208,19 +260,24 @@ defmodule Docuconf.Declaration do
   defp normalize_type({:list, t}) when t in [:integer, :int], do: {"list", %{items: "int"}}
   defp normalize_type(_), do: :error
 
-  defp build_var({field, type, opts}) do
+  @bool_opts [:required, :secret, :flag_warning]
+
+  defp build_var({field, type, opts}, origin) do
     label = "env #{inspect(field)}"
 
-    with {:type, {t, implied}} <- {:type, normalize_type(type)},
-         {:opts, []} <- {:opts, Keyword.keys(opts) -- (@common_var_opts ++ @type_opts[t])} do
+    with {:opts, true} <- {:opts, is_list(opts) and Keyword.keyword?(opts)},
+         {:type, {t, implied}} <- {:type, normalize_type(type)},
+         {:unknown, []} <- {:unknown, Keyword.keys(opts) -- (@common_var_opts ++ @type_opts[t])} do
       opts = Keyword.merge(Enum.to_list(implied), opts)
       name = Keyword.get_lazy(opts, :name, fn -> field |> Atom.to_string() |> String.upcase() end)
       description = opts[:description] || opts[:doc]
+      values = opts[:values]
 
       var = %Var{
         field: field,
         name: name,
         type: t,
+        origin: origin,
         description: description,
         required: opts[:required] == true,
         secret: opts[:secret] == true,
@@ -231,7 +288,8 @@ defmodule Docuconf.Declaration do
         min_length: opts[:min_length],
         max_length: opts[:max_length],
         pattern: pattern_source(opts[:pattern]),
-        values: opts[:values] && Enum.map(opts[:values], &to_string/1),
+        values: if(is_list(values), do: Enum.map(values, &to_string/1)),
+        atom_values: is_list(values) and values != [] and Enum.all?(values, &is_atom/1),
         schemes: opts[:schemes] && Enum.map(opts[:schemes], &to_string/1),
         items: opts[:items],
         separator: Keyword.get(opts, :separator, ","),
@@ -245,7 +303,13 @@ defmodule Docuconf.Declaration do
       }
 
       {var, problems} = var_specifics(var, opts)
-      problems = problems ++ common_var_problems(var, opts)
+
+      bool_problems =
+        for k <- @bool_opts, Keyword.has_key?(opts, k), not is_boolean(opts[k]) do
+          "#{k} must be true or false, got #{inspect(opts[k])}"
+        end
+
+      problems = problems ++ bool_problems ++ common_var_problems(var, opts)
 
       label = "#{label} (#{name})"
 
@@ -253,14 +317,59 @@ defmodule Docuconf.Declaration do
         do: {:ok, var},
         else: {:error, Enum.map(problems, &"#{label}: #{&1}")}
     else
+      {:opts, false} ->
+        {:error, ["#{label}: options must be a keyword list, got #{inspect(opts)}"]}
+
       {:type, :error} ->
         {:error,
          [
-           "#{label}: unknown type #{inspect(type)}; use :string, :integer, :float, :boolean, :duration, :url, {:in, values}, {:list, :string | :integer} or :json"
+           "#{label}: unknown type #{inspect(type)}#{suggest(type, @type_names)}; use :string, :integer, " <>
+             ":pos_integer, :non_neg_integer, :float, :boolean, :duration, :url, {:in, values}, " <>
+             "{:list, :string | :integer} or :json"
          ]}
 
-      {:opts, bad} ->
-        {:error, ["#{label}: unknown options #{inspect(bad)}"]}
+      {:unknown, bad} ->
+        {t, _} = normalize_type(type)
+        valid = @common_var_opts ++ @type_opts[t]
+        {:error, Enum.map(bad, &unknown_option(label, &1, type, valid))}
+    end
+  end
+
+  defp unknown_option(label, opt, type, valid) do
+    others =
+      @type_opts |> Map.values() |> List.flatten() |> Enum.uniq() |> Kernel.--(valid)
+
+    hint =
+      cond do
+        (s = suggestion(opt, valid)) != nil -> "; did you mean #{inspect(s)}?"
+        opt in others -> "; #{inspect(opt)} does not apply to type #{inspect(type)}"
+        true -> ""
+      end
+
+    "#{label}: unknown option #{inspect(opt)} for #{inspect(type)}#{hint} " <>
+      "(valid: #{valid |> Enum.sort() |> Enum.map_join(", ", &Atom.to_string/1)})"
+  end
+
+  # Elixir's own "did you mean" uses String.jaro_distance/2 the same way.
+  defp suggestion(given, candidates) when is_atom(given) do
+    given = Atom.to_string(given)
+
+    candidates
+    |> Enum.map(&{&1, String.jaro_distance(given, Atom.to_string(&1))})
+    |> Enum.filter(fn {_, d} -> d >= 0.8 end)
+    |> Enum.max_by(fn {_, d} -> d end, fn -> nil end)
+    |> case do
+      {c, _} -> c
+      nil -> nil
+    end
+  end
+
+  defp suggestion(_given, _candidates), do: nil
+
+  defp suggest(given, candidates) do
+    case suggestion(given, candidates) do
+      nil -> ""
+      s -> " (did you mean #{inspect(s)}?)"
     end
   end
 
@@ -275,16 +384,17 @@ defmodule Docuconf.Declaration do
     do: %{message: opts[:message], replaced_by: opts[:replaced_by]}
 
   defp var_specifics(%Var{type: "duration"} = var, opts) do
-    {min, p1} = dur(opts[:min], "min")
-    {max, p2} = dur(opts[:max], "max")
+    unit_ok = var.unit in Duration.units()
+    unit = if unit_ok, do: var.unit
+    {min, p1} = dur(opts[:min], "min", unit, var.encoding)
+    {max, p2} = dur(opts[:max], "max", unit, var.encoding)
 
     {default, p3} =
-      if Keyword.has_key?(opts, :default), do: dur(opts[:default], "default"), else: {nil, []}
+      if Keyword.has_key?(opts, :default),
+        do: dur(opts[:default], "default", unit, var.encoding),
+        else: {nil, []}
 
-    unit_p =
-      if var.unit in Duration.units(),
-        do: [],
-        else: ["unit must be one of #{inspect(Duration.units())}"]
+    unit_p = if unit_ok, do: [], else: ["unit must be one of #{inspect(Duration.units())}"]
 
     {%{var | min: min, max: max, default: default, has_default: Keyword.has_key?(opts, :default)},
      p1 ++ p2 ++ p3 ++ unit_p}
@@ -322,17 +432,55 @@ defmodule Docuconf.Declaration do
     end
   end
 
-  defp dur(nil, _), do: {nil, []}
+  # A duration given in the declaration (default, min, max, min_remaining):
+  # Go syntax ("30s"), the variable's own wire encoding ("PT30S" for
+  # :iso8601), an integer in the variable's unit (30_000, :timer.seconds(30)),
+  # or an Elixir Duration. Returns nanoseconds.
+  defp dur(value, what, unit \\ nil, encoding \\ nil)
 
-  defp dur(s, what) when is_binary(s) do
+  defp dur(nil, _what, _unit, _encoding), do: {nil, []}
+
+  defp dur(s, what, _unit, encoding) when is_binary(s) do
     case Duration.parse(s) do
-      {:ok, ns} -> {ns, []}
-      :error -> {nil, ["#{what} #{inspect(s)} is not a Go duration such as 1m30s"]}
+      {:ok, ns} ->
+        {ns, []}
+
+      :error ->
+        case encoding not in [nil, "go"] && Duration.parse(s, encoding) do
+          {:ok, ns} -> {ns, []}
+          _ -> {nil, ["#{what} #{inspect(s)} is not a Go duration such as \"30s\" or \"1m30s\""]}
+        end
     end
   end
 
-  defp dur(other, what),
-    do: {nil, ["#{what} must be a Go duration string such as \"30s\", got #{inspect(other)}"]}
+  defp dur(i, what, unit, _encoding) when is_integer(i) do
+    case unit && Duration.from_unit(i, unit) do
+      {:ok, ns} ->
+        {ns, []}
+
+      _ ->
+        {nil,
+         [
+           "#{what} #{i} has no unit here; write a string such as \"30s\" or an Elixir Duration " <>
+             "such as Duration.new!(second: 30)"
+         ]}
+    end
+  end
+
+  defp dur(%{__struct__: Elixir.Duration} = d, what, _unit, _encoding) do
+    case Duration.from_elixir(d) do
+      {:ok, ns} -> {ns, []}
+      :error -> {nil, ["#{what} #{inspect(d)} uses years or months, which have no fixed length"]}
+    end
+  end
+
+  defp dur(other, what, _unit, _encoding),
+    do:
+      {nil,
+       [
+         "#{what} must be a duration such as \"30s\", an integer in the variable's unit, or an " <>
+           "Elixir Duration, got #{inspect(other)}"
+       ]}
 
   defp common_var_problems(%Var{} = v, opts) do
     [
@@ -357,9 +505,9 @@ defmodule Docuconf.Declaration do
          ((v.min != nil and not is_number(v.min)) or (v.max != nil and not is_number(v.max))),
        "min and max must be numbers"},
       {v.min_length != nil and v.max_length != nil and v.min_length > v.max_length,
-       "minLength is greater than maxLength"},
+       "#{Var.opt_name(v, "min_length", "minLength")} is greater than #{Var.opt_name(v, "max_length", "maxLength")}"},
       {v.min_items != nil and v.max_items != nil and v.min_items > v.max_items,
-       "minItems is greater than maxItems"},
+       "#{Var.opt_name(v, "min_items", "minItems")} is greater than #{Var.opt_name(v, "max_items", "maxItems")}"},
       {v.type == "list" and v.encoding not in [nil, "csv", "json", "indexed"],
        "encoding must be :csv, :json or :indexed"},
       {v.type == "list" and v.encoding not in [nil, "csv"] and Keyword.has_key?(opts, :separator),
@@ -410,7 +558,7 @@ defmodule Docuconf.Declaration do
 
   # ---- files ---------------------------------------------------------------
 
-  defp build_file({field, type, opts}, vars) do
+  defp build_file({field, type, opts}, vars, origin) do
     name =
       Keyword.get_lazy(opts, :name, fn ->
         if is_atom(field), do: field |> Atom.to_string() |> String.replace("_", "-"), else: field
@@ -425,6 +573,7 @@ defmodule Docuconf.Declaration do
       [] ->
         f = %FileInput{
           field: field,
+          origin: origin,
           name: name,
           type: type,
           description: opts[:description] || opts[:doc],
@@ -457,7 +606,19 @@ defmodule Docuconf.Declaration do
         if problems == [], do: {:ok, f}, else: {:error, Enum.map(problems, &"#{label}: #{&1}")}
 
       bad ->
-        {:error, ["#{label}: unknown options #{inspect(bad)}"]}
+        valid = @common_file_opts ++ @file_type_opts[type]
+
+        {:error,
+         Enum.map(bad, fn opt ->
+           hint =
+             case suggestion(opt, valid) do
+               nil -> ""
+               s -> "; did you mean #{inspect(s)}?"
+             end
+
+           "#{label}: unknown option #{inspect(opt)}#{hint} " <>
+             "(valid: #{valid |> Enum.sort() |> Enum.map_join(", ", &Atom.to_string/1)})"
+         end)}
     end
   end
 

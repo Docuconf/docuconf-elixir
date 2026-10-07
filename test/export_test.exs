@@ -61,11 +61,42 @@ defmodule Docuconf.ExportTest do
       "--check"
     ])
 
-    File.write!(out, "stale")
+    # A version bump is not a contract change.
+    Mix.Tasks.Docuconf.Export.run([
+      "Docuconf.Test.SampleEnv",
+      "--output",
+      out,
+      "--app-version",
+      "10.0.0",
+      "--check"
+    ])
 
-    assert_raise Mix.Error, fn ->
-      Mix.Tasks.Docuconf.Export.run(["Docuconf.Test.SampleEnv", "--output", out, "--check"])
-    end
+    File.write!(out, String.replace(File.read!(out), ~s(default: 8080), ~s(default: 8081)))
+
+    e =
+      assert_raise Mix.Error, fn ->
+        Mix.Tasks.Docuconf.Export.run(["Docuconf.Test.SampleEnv", "--output", out, "--check"])
+      end
+
+    assert e.message =~
+             "is out of date; run: mix docuconf.export Docuconf.Test.SampleEnv --output #{out}"
+
+    assert e.message =~ "-\t\t\tdefault: 8081"
+    assert e.message =~ "+\t\t\tdefault: 8080"
+  end
+
+  test "mix docuconf.export -o - writes only the contract to stdout" do
+    Mix.shell(Mix.Shell.Process)
+    on_exit(fn -> Mix.shell(Mix.Shell.IO) end)
+
+    out =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Mix.Tasks.Docuconf.Export.run(["Docuconf.Test.SampleEnv", "-o", "-"])
+      end)
+
+    assert out == Docuconf.Test.SampleEnv.export(app_version: Mix.Project.config()[:version])
+    # The shell is restored after the quiet compile.
+    assert Mix.shell() == Mix.Shell.Process
   end
 
   # cue vet -c against the meta-schema. The meta-schema lives in docuconf-go

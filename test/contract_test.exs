@@ -2,6 +2,7 @@ defmodule Docuconf.ContractTest do
   use ExUnit.Case, async: true
 
   alias Docuconf.{Contract, DeclarationError, ValidationError}
+  alias Docuconf.Contract.Values
 
   @contract %{
     "apiVersion" => "docuconf.dev/v1alpha1",
@@ -59,9 +60,10 @@ defmodule Docuconf.ContractTest do
 
     assert {:ok, values} = load(env)
 
-    assert values == %{
+    # Durations are milliseconds by default, as in the DSL.
+    assert Values.to_map(values) == %{
              "PORT" => 8080,
-             "TIMEOUT" => 90_500_000_000,
+             "TIMEOUT" => 90_500,
              "PARTITIONS" => [3, 7],
              "TAGS" => ["a", "b"],
              "TOKEN" => "tok_12345678"
@@ -69,17 +71,29 @@ defmodule Docuconf.ContractTest do
 
     assert {:ok, ^values} = load(env, JSON.encode!(@contract))
 
-    assert {:ok, %{"TIMEOUT" => 90_500}} =
+    assert values["PORT"] == 8080
+    assert get_in(values, ["TAGS"]) == ["a", "b"]
+
+    assert {:ok, %Values{values: %{"TIMEOUT" => 90_500_000_000}}} =
              Contract.load(@contract,
                env: env,
-               duration_unit: :millisecond,
+               duration_unit: :nanosecond,
                termination_log: false,
                warn: false
              )
   end
 
+  test "inspect redacts secret values" do
+    assert {:ok, values} = load(%{"TOKEN" => "tok_12345678"})
+    shown = inspect(values)
+    refute shown =~ "tok_12345678"
+    assert shown =~ ~s("TOKEN" => **redacted**)
+    assert shown =~ ~s("PORT" => 8080)
+  end
+
   test "absent optional values are nil" do
-    assert {:ok, %{"TIMEOUT" => nil, "PARTITIONS" => nil, "TAGS" => nil}} = load(%{})
+    assert {:ok, %Values{values: %{"TIMEOUT" => nil, "PARTITIONS" => nil, "TAGS" => nil}}} =
+             load(%{})
   end
 
   test "reports every violation, and never a secret's value" do
@@ -154,7 +168,7 @@ defmodule Docuconf.ContractTest do
     end
 
     test "are checked and returned by name", %{root: root, contract: contract} do
-      assert {:ok, %{"motd" => %Docuconf.LoadedFile{data: "hello\n"}}} =
+      assert {:ok, %Values{values: %{"motd" => %Docuconf.LoadedFile{data: "hello\n"}}}} =
                load(%{"DOCUCONF_FILE_ROOT" => root}, contract)
 
       File.write!(Path.join(root, "etc/orders/motd/motd.txt"), "far too long\n")

@@ -24,9 +24,12 @@ defmodule Docuconf do
 
       # config/runtime.exs
       import Config
-      env = MyApp.Env.load!()
-      config :my_app, MyApp.Repo, url: env.database_url
-      config :my_app, MyAppWeb.Endpoint, http: [port: env.port]
+
+      if config_env() != :test do
+        env = MyApp.Env.load!()
+        config :my_app, MyApp.Repo, url: env.database_url
+        config :my_app, MyAppWeb.Endpoint, http: [port: env.port]
+      end
 
   See the README for every option.
   """
@@ -61,10 +64,13 @@ defmodule Docuconf do
   Declares an environment variable. The name is the field upcased
   (`:database_url` reads `DATABASE_URL`) unless `name:` is given.
 
-  Types: `:string`, `:integer`, `:float`, `:boolean`, `:duration` (Go
-  syntax, `1m30s`), `:url`, `{:in, values}` (or `:enum` with `values:`),
-  `{:list, :string}`, `{:list, :integer}` (comma-separated by default)
-  and `:json`.
+  Types: `:string`, `:integer` (`:pos_integer` and `:non_neg_integer` add
+  `min: 1` or `min: 0`), `:float`, `:boolean`, `:duration` (Go syntax,
+  `1m30s`), `:url`, `{:in, values}` (or `:enum` with `values:`; all-atom
+  values load as atoms), `{:list, :string}`, `{:list, :integer}`
+  (comma-separated by default) and `:json`. A duration's `default`, `min`
+  and `max` may be a Go string, a string in its `encoding`, an integer in
+  its `unit`, or an Elixir `Duration`.
 
   Options: `description` (or `doc`, at least 5 characters, required),
   `required`, `default`, `secret`, `group`, `examples`, `deprecated`,
@@ -78,15 +84,47 @@ defmodule Docuconf do
   or `:indexed`; duration: `:go`, `:iso8601`, `:seconds` or `:timespan`).
   """
   defmacro env(field, type, opts \\ []) do
+    check = ensure_used!(__CALLER__, "env")
+    line = __CALLER__.line
+
     quote do
-      @docuconf_vars {unquote(field), unquote(type), unquote(opts)}
+      unquote(check)
+      @docuconf_vars {unquote(field), unquote(type), unquote(opts), unquote(line)}
     end
   end
 
   @doc "Declares a secret environment variable: `env` with `secret: true`."
   defmacro secret(field, type, opts \\ []) do
+    check = ensure_used!(__CALLER__, "secret")
+    line = __CALLER__.line
+
     quote do
-      @docuconf_vars {unquote(field), unquote(type), Keyword.put(unquote(opts), :secret, true)}
+      unquote(check)
+
+      @docuconf_vars {unquote(field), unquote(type), Keyword.put(unquote(opts), :secret, true),
+                      unquote(line)}
+    end
+  end
+
+  # `import Docuconf` alone would make every declaration a silent no-op.
+  # Attributes are set as the module body runs, so the check runs there too.
+  defp ensure_used!(caller, macro) do
+    if caller.module == nil do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description: "docuconf: #{macro} must be called inside a module that has use Docuconf"
+    end
+
+    quote do
+      unless Module.has_attribute?(__MODULE__, :docuconf_opts) do
+        raise CompileError,
+          file: unquote(caller.file),
+          line: unquote(caller.line),
+          description:
+            "docuconf: #{unquote(macro)} must be called inside a module that has use Docuconf, " <>
+              "name: \"my-service\" (import Docuconf alone declares nothing)"
+      end
     end
   end
 
@@ -105,7 +143,7 @@ defmodule Docuconf do
 
   #{@file_doc}
   """
-  defmacro config_file(field, opts), do: file_attr(field, "config", opts)
+  defmacro config_file(field, opts), do: file_attr(__CALLER__, field, "config", opts)
 
   @doc """
   Declares a TLS key pair directory (`tls.crt`, `tls.key`, and `ca.crt`
@@ -115,10 +153,10 @@ defmodule Docuconf do
 
   #{@file_doc}
   """
-  defmacro tls_file(field, opts), do: file_attr(field, "tls", opts)
+  defmacro tls_file(field, opts), do: file_attr(__CALLER__, field, "tls", opts)
 
   @doc "Declares a PEM CA bundle. Extra option: `min_certificates` (default 1).\n\n#{@file_doc}"
-  defmacro ca_bundle_file(field, opts), do: file_attr(field, "caBundle", opts)
+  defmacro ca_bundle_file(field, opts), do: file_attr(__CALLER__, field, "caBundle", opts)
 
   @doc """
   Declares a keystore. Extra options: `format` (`:pkcs12` or `:jks`) and
@@ -126,17 +164,21 @@ defmodule Docuconf do
 
   #{@file_doc}
   """
-  defmacro keystore_file(field, opts), do: file_attr(field, "keystore", opts)
+  defmacro keystore_file(field, opts), do: file_attr(__CALLER__, field, "keystore", opts)
 
   @doc "Declares a text file. Extra options: `pattern` (RE2), `min_length`, `max_length`.\n\n#{@file_doc}"
-  defmacro text_file(field, opts), do: file_attr(field, "text", opts)
+  defmacro text_file(field, opts), do: file_attr(__CALLER__, field, "text", opts)
 
   @doc "Declares an opaque binary file; only its size is checked.\n\n#{@file_doc}"
-  defmacro binary_file(field, opts), do: file_attr(field, "binary", opts)
+  defmacro binary_file(field, opts), do: file_attr(__CALLER__, field, "binary", opts)
 
-  defp file_attr(field, type, opts) do
+  defp file_attr(caller, field, type, opts) do
+    check = ensure_used!(caller, "a file declaration")
+    line = caller.line
+
     quote do
-      @docuconf_files {unquote(field), unquote(type), unquote(opts)}
+      unquote(check)
+      @docuconf_files {unquote(field), unquote(type), unquote(opts), unquote(line)}
     end
   end
 
@@ -148,17 +190,37 @@ defmodule Docuconf do
     files = mod |> Module.get_attribute(:docuconf_files) |> Enum.reverse()
 
     decl =
-      case Declaration.build(opts, vars, files) do
+      case Declaration.build_located(opts, vars, files) do
         {:ok, decl} -> decl
-        {:error, problems} -> raise Docuconf.DeclarationError, module: mod, problems: problems
+        {:error, problems} -> declaration_error!(env, problems)
       end
 
-    for w <- decl.warnings, do: IO.warn("docuconf: " <> w, env)
+    for {line, w} <- decl.warnings,
+        do: IO.warn("docuconf: " <> w, %{env | line: line || env.line})
 
-    fields = Enum.map(decl.vars, & &1.field) ++ Enum.map(decl.files, & &1.field)
+    inputs = decl.vars ++ decl.files
+    fields = Enum.map(inputs, & &1.field)
+
+    secrets =
+      for(v <- decl.vars, v.secret, do: v.field) ++
+        for f <- decl.files, Docuconf.FileInput.secret_data?(f), do: f.field
+
+    types = Enum.map(inputs, &{&1.field, typespec(&1)})
+
+    moduledoc =
+      if Module.get_attribute(mod, :moduledoc) == nil do
+        quote do: @moduledoc(unquote(moduledoc(decl)))
+      end
 
     quote do
+      unquote(moduledoc)
+
       defstruct unquote(fields)
+
+      @typedoc "The loaded configuration: one field per declared input."
+      @type t :: %__MODULE__{unquote_splicing(types)}
+
+      unquote(inspect_impl(fields, secrets))
 
       @doc "The checked declaration this module was built from."
       def __docuconf__, do: unquote(Macro.escape(decl))
@@ -168,14 +230,123 @@ defmodule Docuconf do
       `{:ok, %#{inspect(__MODULE__)}{}}` or `{:error, %Docuconf.ValidationError{}}`.
       See `Docuconf.load/2` for options.
       """
+      @spec load(keyword()) :: {:ok, t()} | {:error, Docuconf.ValidationError.t()}
       def load(opts \\ []), do: Docuconf.load(__MODULE__, opts)
 
-      @doc "Like `load/1`, but raises `Docuconf.ValidationError` listing every problem."
+      @doc """
+      Like `load/1`, but returns the struct. On invalid configuration it
+      prints every problem and stops the node with exit status 1 (when
+      reading the process environment), or raises `Docuconf.ValidationError`
+      (when given `env:`). See `Docuconf.load!/2`.
+      """
+      @spec load!(keyword()) :: t()
       def load!(opts \\ []), do: Docuconf.load!(__MODULE__, opts)
 
       @doc "Renders this declaration's `contract.cue`. See `Docuconf.export/2`."
       def export(opts \\ []), do: Docuconf.export(__MODULE__, opts)
     end
+  end
+
+  # Secrets are redacted wherever the struct is inspected: IEx, Logger,
+  # crash reports, :observer. A module compiled after protocols were
+  # consolidated (one defined in a test file) cannot add an implementation,
+  # so none is emitted there rather than one that would only warn.
+  defp inspect_impl(fields, secrets) do
+    unless Protocol.consolidated?(Inspect) do
+      quote do
+        defimpl Inspect do
+          def inspect(struct, opts),
+            do: Docuconf.Redacted.inspect_struct(struct, unquote(fields), unquote(secrets), opts)
+        end
+      end
+    end
+  end
+
+  # Raises the declaration problems with each one's file:line, and with a
+  # stacktrace that points editors and the compiler at the first of them
+  # rather than at `defmodule`.
+  defp declaration_error!(env, problems) do
+    file = Path.relative_to_cwd(env.file)
+
+    messages =
+      Enum.map(problems, fn
+        {nil, msg} -> msg
+        {line, msg} -> "#{file}:#{line}: #{msg}"
+      end)
+
+    line = Enum.find_value(problems, env.line, fn {l, _} -> l end)
+    stack = [{env.module, :__MODULE__, 0, [file: String.to_charlist(env.file), line: line]}]
+    reraise Docuconf.DeclarationError, [module: env.module, problems: messages], stack
+  end
+
+  defp typespec(%Docuconf.FileInput{required: required}) do
+    nilable(quote(do: Docuconf.LoadedFile.t()), required)
+  end
+
+  defp typespec(%Docuconf.Var{} = v) do
+    base =
+      case v.type do
+        "string" -> quote(do: String.t())
+        "url" -> quote(do: String.t())
+        "int" when is_integer(v.min) and v.min >= 1 -> quote(do: pos_integer())
+        "int" when is_integer(v.min) and v.min >= 0 -> quote(do: non_neg_integer())
+        "int" -> quote(do: integer())
+        "float" -> quote(do: float())
+        "bool" -> quote(do: boolean())
+        "duration" when v.unit == :duration -> quote(do: Duration.t())
+        "duration" -> quote(do: integer())
+        "enum" when v.atom_values -> v.values |> Enum.map(&String.to_atom/1) |> union()
+        "enum" -> quote(do: String.t())
+        "list" when v.items == "int" -> quote(do: [integer()])
+        "list" -> quote(do: [String.t()])
+        "json" -> quote(do: term())
+      end
+
+    nilable(base, v.required or v.has_default)
+  end
+
+  defp nilable(ast, true), do: ast
+  defp nilable(ast, false), do: {:|, [], [ast, nil]}
+
+  defp union([a]), do: a
+  defp union([a | rest]), do: {:|, [], [a, union(rest)]}
+
+  defp moduledoc(decl) do
+    cell = fn s -> s |> to_string() |> String.replace("|", "\\|") |> String.replace("\n", " ") end
+
+    vars =
+      for v <- decl.vars do
+        default =
+          cond do
+            v.secret -> "secret"
+            v.required -> "required"
+            v.has_default -> "`#{cell.(Docuconf.CUE.default_text(v))}`"
+            true -> ""
+          end
+
+        "| `#{v.name}` | #{v.type} | #{default} | #{cell.(v.description)} |"
+      end
+
+    files =
+      for f <- decl.files do
+        "| `#{f.name}` | #{f.type} | `#{f.path}`#{if f.required, do: " (required)", else: ""} | #{cell.(f.description)} |"
+      end
+
+    """
+    The configuration of #{decl.name}, declared with `use Docuconf`.
+
+    | Variable | Type | Default | Description |
+    |---|---|---|---|
+    #{Enum.join(vars, "\n")}
+    """ <>
+      if files == [],
+        do: "",
+        else: """
+
+        | File input | Type | Path | Description |
+        |---|---|---|---|
+        #{Enum.join(files, "\n")}
+        """
   end
 
   @doc """
@@ -185,11 +356,18 @@ defmodule Docuconf do
 
     * `:env` - a map to read instead of `System.get_env/0` (tests);
     * `:dotenv` - a `.env` file to read first, for development; real
-      environment variables override it;
+      environment variables override it. `nil` or `false` reads none, so
+      `dotenv: config_env() == :dev && ".env"` works. A named file that does
+      not exist gives a warning;
+    * `:fallback_env` - a map of variable name to value used only for
+      variables that neither the environment nor the `.env` file sets, for
+      development values that do not belong in the contract (a dev
+      `SECRET_KEY_BASE`). `nil` or `false` uses none;
     * `:file_root` - prefixed to every absolute file path (default
       `DOCUCONF_FILE_ROOT`);
     * `:termination_log` - where to write violations, or `false` (default
-      `DOCUCONF_TERMINATION_LOG`, else `/dev/termination-log` if it exists);
+      `DOCUCONF_TERMINATION_LOG`, else `/dev/termination-log` if it exists;
+      `false` when `:env` is given, so tests never write it);
     * `:now` - a `DateTime` for certificate checks (tests);
     * `:warn` - `false` to silence warnings on standard error;
     * `:watcher_check` - what happens when the declaration has
@@ -200,7 +378,13 @@ defmodule Docuconf do
       logs it; a 1-arity function receives the message; `false` (the
       default when `:env` is given) skips the check;
     * `:watcher_grace` - for a module that belongs to no application, how
-      long to wait before checking, in milliseconds (default 5000).
+      long to wait before checking, in milliseconds (default 5000);
+    * `:on_error` - for `load!/2` only, see there.
+
+  Warnings go to standard error: a deprecated variable that is set, a secret
+  ending in a newline, a missing `.env` file, and a set variable whose name
+  is one or two edits from a declared one (`DATABSE_URL is set but not
+  declared; did you mean DATABASE_URL?`).
   """
   @spec load(module(), keyword()) :: {:ok, struct()} | {:error, ValidationError.t()}
   def load(module, opts \\ []) do
@@ -209,6 +393,7 @@ defmodule Docuconf do
     {result, warnings} =
       case Loader.run(decl, opts) do
         {:ok, values, warnings} ->
+          Docuconf.Watcher.remember(module, opts)
           Docuconf.Watcher.expect(module, decl, opts)
           {{:ok, struct!(module, values)}, warnings}
 
@@ -228,12 +413,50 @@ defmodule Docuconf do
     result
   end
 
-  @doc "Like `load/2`, but raises `Docuconf.ValidationError`."
+  @doc """
+  Like `load/2`, but returns the struct, and on invalid configuration
+  either stops the node or raises, by `:on_error`:
+
+    * `:halt` (the default when reading the process environment, that is
+      at boot): prints `docuconf: N configuration problems:` and one line
+      per problem to standard error, with no stack trace, and stops the
+      node with exit status 1. The termination log is written as by
+      `load/2`. In `config/runtime.exs` this is a clean boot failure in
+      `mix run`, `mix phx.server` and in a release, with no crash dump;
+    * `:raise` (the default when `:env` is given, as in tests): raises
+      `Docuconf.ValidationError` listing every problem.
+  """
   @spec load!(module(), keyword()) :: struct()
   def load!(module, opts \\ []) do
+    on_error!(opts)
+
     case load(module, opts) do
       {:ok, values} -> values
-      {:error, e} -> raise e
+      {:error, e} -> fail!(e, opts)
+    end
+  end
+
+  defp on_error!(opts) do
+    default = if Keyword.has_key?(opts, :env), do: :raise, else: :halt
+
+    case Keyword.get(opts, :on_error, default) do
+      mode when mode in [:halt, :raise] ->
+        mode
+
+      other ->
+        raise ArgumentError, "docuconf: :on_error must be :halt or :raise, got: #{inspect(other)}"
+    end
+  end
+
+  @doc false
+  def fail!(%ValidationError{} = e, opts) do
+    case on_error!(opts) do
+      :raise ->
+        raise e
+
+      :halt ->
+        IO.puts(:stderr, Exception.message(e))
+        System.halt(1)
     end
   end
 

@@ -15,9 +15,11 @@ a `v*` tag is pushed.
    secret of a GitHub environment named `hex`. Restrict that environment to
    `v*` tags and, if you like, require a reviewer.
 3. Check the package locally: `mix hex.build` lists the files and metadata
-   that would be published (`lib`, `mix.exs`, `README.md`, `RELEASING.md`,
+   that would be published (`lib`, `mix.exs`, `README.md`,
    `LICENSE`, `.formatter.exs`) with `licenses: ["MIT"]`, and `mix docs`
    builds the documentation.
+4. In `README.md`, replace the GitHub dependency under "1. Install" with
+   `{:docuconf, "~> 0.1"}` once the package is on Hex.
 
 ## Each release
 

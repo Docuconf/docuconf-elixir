@@ -10,6 +10,11 @@ defmodule Docuconf.Contract do
       values["PORT"]          #=> 8080
       values["serving-tls"]   #=> %Docuconf.LoadedFile{...}
 
+  `values` is a `Docuconf.Contract.Values`: read it with `values["PORT"]`
+  (`Access`) or turn it into a plain map with
+  `Docuconf.Contract.Values.to_map/1`. Inspecting it shows secrets as
+  `**redacted**`.
+
   The contract is turned into the same declaration the DSL builds, so it
   goes through the same declaration checks, parsers and constraint checks
   as `use Docuconf`. Values are keyed by variable name (`"PORT"`) and file
@@ -17,7 +22,7 @@ defmodule Docuconf.Contract do
 
   Every list encoding (`csv`, `json`, `indexed`) and duration encoding
   (`go`, `iso8601`, `seconds`, `timespan`) is parsed. Durations are integers
-  in `:duration_unit` (nanoseconds by default, so no precision is lost).
+  in `:duration_unit`: milliseconds by default, as in the DSL.
 
   Not supported: `reload: "watch"` (contract-first mode starts no watcher,
   so it rejects the promise rather than break it), `overlays` and
@@ -86,7 +91,7 @@ defmodule Docuconf.Contract do
 
   @doc """
   Turns a contract (a JSON string or a decoded map) into a checked
-  declaration. Options: `:duration_unit` (default `:nanosecond`; see the
+  declaration. Options: `:duration_unit` (default `:millisecond`; see the
   `unit` option of `Docuconf.env/3`) and `:decoders`, a map from config
   file format (`"yaml"`, `"toml"`) to a decoder function.
   """
@@ -130,7 +135,11 @@ defmodule Docuconf.Contract do
 
       translated = var_problems ++ file_problems
 
-      case Declaration.build([name: name, app_version: version], var_decls, file_decls) do
+      case Declaration.build(
+             [name: name, app_version: version, origin: :contract],
+             var_decls,
+             file_decls
+           ) do
         {:ok, decl} when translated == [] -> {:ok, decl}
         {:ok, _} -> {:error, translated}
         {:error, ps} -> {:error, translated ++ ps}
@@ -158,7 +167,7 @@ defmodule Docuconf.Contract do
         |> deprecated(v)
         |> then(fn o ->
           if v["type"] == "duration",
-            do: Keyword.put(o, :unit, Keyword.get(opts, :duration_unit, :nanosecond)),
+            do: Keyword.put(o, :unit, Keyword.get(opts, :duration_unit, :millisecond)),
             else: o
         end)
 
@@ -250,15 +259,15 @@ defmodule Docuconf.Contract do
   Loads and validates an environment against a contract (a JSON string, a
   decoded map, or a declaration from `parse/2`).
 
-  Returns `{:ok, values}`, a map from variable and file input name to its
-  typed value, or `{:error, %Docuconf.ValidationError{}}` listing every
+  Returns `{:ok, values}`, a `Docuconf.Contract.Values` from variable and
+  file input name to its typed value, or `{:error, %Docuconf.ValidationError{}}` listing every
   violation. An invalid contract returns `{:error, %Docuconf.DeclarationError{}}`.
 
   Takes the options of `parse/2` and of `Docuconf.load/2`: `:env`,
   `:dotenv`, `:file_root`, `:termination_log`, `:now` and `:warn`.
   """
   @spec load(String.t() | map() | Declaration.t(), keyword()) ::
-          {:ok, %{String.t() => term()}}
+          {:ok, Docuconf.Contract.Values.t()}
           | {:error, ValidationError.t() | DeclarationError.t()}
   def load(contract, opts \\ [])
 
@@ -270,7 +279,11 @@ defmodule Docuconf.Contract do
             Map.new(decl.vars, &{&1.name, Map.get(values, &1.field)})
             |> Map.merge(Map.new(decl.files, &{&1.name, Map.get(values, &1.field)}))
 
-          {{:ok, by_name}, warnings}
+          secrets =
+            for(v <- decl.vars, v.secret, do: v.name) ++
+              for f <- decl.files, Docuconf.FileInput.secret_data?(f), do: f.name
+
+          {{:ok, %Docuconf.Contract.Values{values: by_name, secrets: secrets}}, warnings}
 
         {:error, violations, warnings} ->
           e = %ValidationError{violations: violations}
@@ -293,7 +306,7 @@ defmodule Docuconf.Contract do
   end
 
   @doc "Like `load/2`, but raises `Docuconf.ValidationError` or `Docuconf.DeclarationError`."
-  @spec load!(String.t() | map() | Declaration.t(), keyword()) :: %{String.t() => term()}
+  @spec load!(String.t() | map() | Declaration.t(), keyword()) :: Docuconf.Contract.Values.t()
   def load!(contract, opts \\ []) do
     case load(contract, opts) do
       {:ok, values} -> values

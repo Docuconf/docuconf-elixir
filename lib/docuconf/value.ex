@@ -67,8 +67,12 @@ defmodule Docuconf.Value do
     encoding = encoding(var)
 
     case Duration.parse(raw, encoding) do
-      {:ok, ns} -> {:ok, ns}
-      :error -> {:error, :invalid_type, "#{shown(var, raw)} is not #{@duration_forms[encoding]}"}
+      {:ok, ns} ->
+        {:ok, ns}
+
+      :error ->
+        {:error, :invalid_type,
+         "#{shown(var, raw)} is not #{@duration_forms[encoding]}#{duration_hint(var, raw, encoding)}"}
     end
   end
 
@@ -96,6 +100,20 @@ defmodule Docuconf.Value do
         {:error, :invalid_type, "is not valid JSON#{detail}"}
     end
   end
+
+  # A value written in another encoding (30s where PT30S is expected) gets
+  # the same duration in the expected form. Never for a secret.
+  defp duration_hint(%Var{secret: true}, _raw, _encoding), do: ""
+
+  defp duration_hint(_var, raw, encoding) do
+    case Enum.find_value(Duration.encodings() -- [encoding], &ok_ns(Duration.parse(raw, &1))) do
+      nil -> ""
+      ns -> "; write #{Duration.format(ns, encoding)}"
+    end
+  end
+
+  defp ok_ns({:ok, ns}), do: ns
+  defp ok_ns(_), do: nil
 
   # csv and indexed items are strings; json items are already typed.
   defp list_items(var, "csv", raw), do: {:ok, String.split(raw, var.separator)}
@@ -218,11 +236,11 @@ defmodule Docuconf.Value do
 
       var.min_length && len < var.min_length ->
         {:error, :out_of_range,
-         "#{shown} is #{len} characters, shorter than minLength #{var.min_length}"}
+         "#{shown} is #{len} characters, shorter than #{Var.opt_name(var, "min_length", "minLength")} #{var.min_length}"}
 
       var.max_length && len > var.max_length ->
         {:error, :out_of_range,
-         "#{shown} is #{len} characters, longer than maxLength #{var.max_length}"}
+         "#{shown} is #{len} characters, longer than #{Var.opt_name(var, "max_length", "maxLength")} #{var.max_length}"}
 
       var.pattern && not RE2.matches?(var.pattern, v) ->
         {:error, :pattern_mismatch, "#{shown} does not match pattern #{inspect(var.pattern)}"}
@@ -283,7 +301,7 @@ defmodule Docuconf.Value do
 
       var.schemes && scheme not in var.schemes ->
         {:error, :invalid_scheme,
-         "scheme #{inspect(if var.secret, do: "(redacted)", else: scheme)} is not one of #{Enum.join(var.schemes, ", ")}"}
+         "scheme #{inspect(scheme)} is not one of #{Enum.join(var.schemes, ", ")}"}
 
       true ->
         :ok
@@ -305,18 +323,24 @@ defmodule Docuconf.Value do
         {:error, :invalid_type, "is not a list of #{var.items}"}
 
       var.min_items && n < var.min_items ->
-        {:error, :too_few_items, "has #{n} items, fewer than minItems #{var.min_items}"}
+        {:error, :too_few_items,
+         "has #{n} items, fewer than #{Var.opt_name(var, "min_items", "minItems")} #{var.min_items}"}
 
       var.max_items && n > var.max_items ->
-        {:error, :too_many_items, "has #{n} items, more than maxItems #{var.max_items}"}
+        {:error, :too_many_items,
+         "has #{n} items, more than #{Var.opt_name(var, "max_items", "maxItems")} #{var.max_items}"}
 
       var.item_min != nil and Enum.any?(v, &(&1 < var.item_min)) ->
         i = Enum.find_index(v, &(&1 < var.item_min))
-        {:error, :out_of_range, "item #{i + 1} is below itemMin #{var.item_min}"}
+
+        {:error, :out_of_range,
+         "item #{i + 1} is below #{Var.opt_name(var, "item_min", "itemMin")} #{var.item_min}"}
 
       var.item_max != nil and Enum.any?(v, &(&1 > var.item_max)) ->
         i = Enum.find_index(v, &(&1 > var.item_max))
-        {:error, :out_of_range, "item #{i + 1} is above itemMax #{var.item_max}"}
+
+        {:error, :out_of_range,
+         "item #{i + 1} is above #{Var.opt_name(var, "item_max", "itemMax")} #{var.item_max}"}
 
       true ->
         :ok
@@ -346,6 +370,11 @@ defmodule Docuconf.Value do
 
   def to_public(%Var{type: "json", spec: spec}, v) when is_list(spec),
     do: JSONSchema.bind(v, spec)
+
+  # Every value of an atom enum is an atom literal in the declaration, so
+  # the atom already exists.
+  def to_public(%Var{type: "enum", atom_values: true}, v) when is_binary(v),
+    do: String.to_existing_atom(v)
 
   def to_public(_var, v), do: v
 end

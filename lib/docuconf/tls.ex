@@ -203,7 +203,7 @@ defmodule Docuconf.TLS do
 
         report.(
           :certificate_expiring,
-          "certificate expires at #{DateTime.to_iso8601(to)} (#{left} left), less than minRemaining #{Duration.format(f.min_remaining)}"
+          "certificate expires at #{DateTime.to_iso8601(to)} (#{left} left), less than #{Docuconf.Var.opt_name(f, "min_remaining", "minRemaining")} #{Duration.format(f.min_remaining)}"
         )
 
       true ->
