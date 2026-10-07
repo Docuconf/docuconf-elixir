@@ -8,7 +8,7 @@ contract.#Contract & {
 	kind: "ConfigContract"
 	metadata: {
 		name: "orders"
-		appVersion: "1.4.0"
+		appVersion: "1.0.0"
 		generator: {
 			language: "elixir"
 			sdk: "docuconf"
@@ -16,85 +16,49 @@ contract.#Contract & {
 		}
 	}
 	vars: {
-		CHECKOUT_TIMEOUT: {
-			type: "duration"
-			description: "Checkout request timeout"
-			encoding: "go"
-			default: "15s"
+		ALLOWED_ORIGINS: {
+			type: "list"
+			description: "Origins allowed to call the API (CORS)"
+			items: "string"
+			encoding: "csv"
+			separator: ","
+			minItems: 1
+			default: ["http://localhost:3000"]
 		}
 		DATABASE_URL: {
 			type: "url"
-			description: "Primary Postgres connection string"
+			description: "Postgres connection string"
 			required: true
 			secret: true
-			schemes: ["postgres", "ecto"]
+			schemes: ["postgres"]
 		}
 		LOG_LEVEL: {
 			type: "enum"
 			description: "Minimum log level"
-			values: ["debug", "info", "warning", "error"]
+			values: ["debug", "info", "warn", "error"]
 			default: "info"
-		}
-		POOL_SIZE: {
-			type: "int"
-			description: "Database connection pool size"
-			min: 1
-			default: 10
 		}
 		PORT: {
 			type: "int"
 			description: "HTTP listen port"
 			min: 1
 			max: 65535
-			default: 4000
+			default: 8080
 		}
-	}
-	files: {
-		pricing: {
-			type: "config"
-			format: "json"
-			description: "Pricing rules: currency and discount tiers"
-			required: true
-			path: "/etc/orders/pricing/pricing.json"
-			schema: {
-				additionalProperties: false
-				properties: {
-					currency: {
-						pattern: "^[A-Z]{3}$"
-						type: "string"
-					}
-					tiers: {
-						items: {
-							additionalProperties: false
-							properties: {
-								min_total: {
-									minimum: 1
-									type: "integer"
-								}
-								percent: {
-									maximum: 100
-									minimum: 0
-									type: "integer"
-								}
-							}
-							required: ["min_total", "percent"]
-							type: "object"
-						}
-						type: "array"
-					}
-				}
-				required: ["currency", "tiers"]
-				type: "object"
-			}
+		REQUEST_TIMEOUT: {
+			type: "duration"
+			description: "Time limit for one request"
+			encoding: "go"
+			min: "1s"
+			max: "5m"
+			default: "30s"
 		}
-		"serving-tls": {
-			type: "tls"
-			description: "Certificate the API serves HTTPS with"
-			secret: true
-			path: "/etc/orders/tls"
-			dnsNames: ["orders.internal"]
-			keyAlgorithms: ["ECDSA", "RSA"]
-			minRemaining: "720h"
+		WORKER_COUNT: {
+			type: "int"
+			description: "Order processing workers"
+			min: 1
+			max: 64
+			default: 4
 		}
 	}
 }

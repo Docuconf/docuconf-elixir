@@ -3,6 +3,10 @@
 Typed configuration contracts for Elixir applications, from the
 [docuconf specification](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md) (v1alpha1).
 
+**Example:** [`examples/orders`](examples/orders) is a small HTTP service
+that declares its configuration, validates it at boot and exports its
+contract.
+
 Elixir apps read their runtime configuration in `config/runtime.exs` with
 `System.fetch_env!/1` and `System.get_env/2`. That is the host this SDK
 extends. You keep `runtime.exs` and `config :my_app, ...`, and you get:
@@ -97,7 +101,7 @@ mix docuconf.export MyApp.Env --check      # fails if contract.cue is stale
 ```
 
 You can also set the module once in `mix.exs` (`docuconf: [module: MyApp.Env]`)
-and run plain `mix docuconf.export`. [`examples/orders`](examples/orders) is a complete app.
+and run plain `mix docuconf.export`, as [`examples/orders`](examples/orders) does.
 
 ## Declaring variables
 

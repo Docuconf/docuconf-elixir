@@ -4,13 +4,15 @@ defmodule Orders.MixProject do
   def project do
     [
       app: :orders,
-      version: "1.4.0",
+      version: "1.0.0",
       elixir: "~> 1.18",
+      # The SDK from this repository, not a published version.
       deps: [{:docuconf, path: "../.."}],
       # `mix docuconf.export` exports this module's contract.
       docuconf: [module: Orders.Env]
     ]
   end
 
-  def application, do: [extra_applications: [:logger]]
+  # :inets is OTP's own HTTP server (:httpd), so the example needs no Hex packages.
+  def application, do: [mod: {Orders.Application, []}, extra_applications: [:logger, :inets]]
 end

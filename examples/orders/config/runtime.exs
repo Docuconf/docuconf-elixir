@@ -1,19 +1,10 @@
 import Config
 
-# Every variable and file is validated here, at boot; all problems are
-# reported together and written to /dev/termination-log in Kubernetes.
+# Every variable is validated here, at boot. All problems are reported
+# together, and written to /dev/termination-log in Kubernetes.
 env = Orders.Env.load!()
 
-config :orders, Orders.Repo,
-  url: env.database_url,
-  pool_size: env.pool_size
+config :orders, env: env
 
-config :orders, :http, port: env.port
-config :orders, :checkout_timeout_ms, env.checkout_timeout
-config :orders, :pricing, env.pricing.data
-
-if tls = env.serving_tls do
-  config :orders, :https, certfile: tls.data.certfile, keyfile: tls.data.keyfile
-end
-
-config :logger, level: String.to_existing_atom(env.log_level)
+config :logger,
+  level: if(env.log_level == "warn", do: :warning, else: String.to_atom(env.log_level))
