@@ -37,9 +37,7 @@ defmodule Docuconf.Loader do
 
     {vars, var_violations, warnings} =
       Enum.reduce(d.vars, {%{}, [], []}, fn var, {vals, vios, warns} ->
-        raw = Map.get(env, var.name)
-        # SPEC §5: empty means unset for every type but string.
-        raw = if raw == "" and var.type != "string", do: nil, else: raw
+        raw = raw_value(env, var)
 
         warns =
           if raw != nil and var.deprecated,
@@ -47,13 +45,14 @@ defmodule Docuconf.Loader do
             else: warns
 
         warns =
-          if raw != nil and var.secret and String.ends_with?(raw, "\n"),
-            do:
-              warns ++
-                [
-                  "#{var.name} ends with a newline; secrets created with --from-file often do (values are never trimmed)"
-                ],
-            else: warns
+          if raw != nil and var.secret and
+               Enum.any?(List.wrap(raw), &String.ends_with?(&1, "\n")),
+             do:
+               warns ++
+                 [
+                   "#{var.name} ends with a newline; secrets created with --from-file often do (values are never trimmed)"
+                 ],
+             else: warns
 
         case resolve(var, raw) do
           {:ok, v} -> {Map.put(vals, var.name, v), vios, warns}
@@ -89,6 +88,27 @@ defmodule Docuconf.Loader do
     end
   end
 
+  # The raw value of a variable: its env string, or the items of an indexed
+  # list (NAME__0, NAME__1, ... up to the first missing index). nil is unset.
+  @doc false
+  def raw_value(env, %Var{type: "list", encoding: "indexed", name: name}) do
+    items =
+      0
+      |> Stream.iterate(&(&1 + 1))
+      |> Stream.map(&Map.get(env, "#{name}__#{&1}"))
+      |> Enum.take_while(&(&1 != nil))
+
+    if items == [], do: nil, else: items
+  end
+
+  def raw_value(env, %Var{} = var) do
+    case Map.get(env, var.name) do
+      # SPEC §5: empty means unset for every type but string.
+      "" when var.type != "string" -> nil
+      raw -> raw
+    end
+  end
+
   defp public(_var, nil), do: nil
   defp public(var, v), do: Value.to_public(var, v)
 
@@ -101,7 +121,7 @@ defmodule Docuconf.Loader do
   end
 
   defp resolve(%Var{secret: true} = var, raw) do
-    case injector_scheme(raw) do
+    case raw |> List.wrap() |> Enum.find_value(&injector_scheme/1) do
       nil ->
         Value.parse(var, raw)
 

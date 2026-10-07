@@ -19,6 +19,42 @@ defmodule Docuconf.DurationTest do
     end
   end
 
+  test "parses every wire encoding" do
+    s = 1_000_000_000
+    assert Duration.parse("1m30s", "go") == {:ok, 90 * s}
+    assert Duration.parse("PT90S", "iso8601") == {:ok, 90 * s}
+    assert Duration.parse("PT0.25S", "iso8601") == {:ok, div(s, 4)}
+    assert Duration.parse("P1DT2H3M4.5S", "iso8601") == {:ok, 93_784 * s + div(s, 2)}
+    assert Duration.parse("PT0S", "iso8601") == {:ok, 0}
+    assert Duration.parse("90", "seconds") == {:ok, 90 * s}
+    assert Duration.parse("0.001", "seconds") == {:ok, 1_000_000}
+    assert Duration.parse("00:01:30", "timespan") == {:ok, 90 * s}
+    assert Duration.parse("2.00:00:00", "timespan") == {:ok, 172_800 * s}
+    assert Duration.parse("00:00:00.1234567", "timespan") == {:ok, 123_456_700}
+
+    for {bad, enc} <- [
+          {"P", "iso8601"},
+          {"PT", "iso8601"},
+          {"P1DT", "iso8601"},
+          {"P1Y", "iso8601"},
+          {"P1W", "iso8601"},
+          {"pt90s", "iso8601"},
+          {"1m30s", "iso8601"},
+          {"90s", "seconds"},
+          {"-1", "seconds"},
+          {".5", "seconds"},
+          {"1e3", "seconds"},
+          {"00:60:00", "timespan"},
+          {"24:00:00", "timespan"},
+          {"1:30", "timespan"},
+          {"1m30s", "timespan"},
+          {"1s", "fortnights"}
+        ] do
+      assert Duration.parse(bad, enc) == :error,
+             "expected #{inspect(bad)} (#{enc}) to be rejected"
+    end
+  end
+
   test "formats in canonical Go form" do
     assert Duration.canonical("90m") == {:ok, "1h30m"}
     assert Duration.canonical("1.5h") == {:ok, "1h30m"}

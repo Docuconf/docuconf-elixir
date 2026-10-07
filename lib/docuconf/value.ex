@@ -12,6 +12,19 @@ defmodule Docuconf.Value do
   @int_min -9_223_372_036_854_775_808
   @int_max 9_223_372_036_854_775_807
 
+  @duration_forms %{
+    "go" => "a Go duration such as 1m30s",
+    "iso8601" => "an ISO 8601 duration such as PT1M30S",
+    "seconds" => "a number of seconds such as 90",
+    "timespan" => "a TimeSpan such as 00:01:30"
+  }
+
+  @doc "The wire encoding of a list or duration variable (SPEC §5)."
+  def encoding(%Var{encoding: e}) when is_binary(e), do: e
+  def encoding(%Var{type: "list"}), do: "csv"
+  def encoding(%Var{type: "duration"}), do: "go"
+  def encoding(_), do: nil
+
   @type result :: {:ok, term()} | {:error, Docuconf.Violation.code(), String.t()}
 
   @doc "Parses a non-empty wire string, then checks it."
@@ -30,7 +43,7 @@ defmodule Docuconf.Value do
   defp parse_type(%Var{type: "int"} = var, raw) do
     case parse_int(raw) do
       {:ok, i} -> {:ok, i}
-      :range -> {:error, :invalid_type, "#{shown(var, raw)} is outside the 64-bit integer range"}
+      :range -> {:error, :out_of_range, "#{shown(var, raw)} is outside the 64-bit integer range"}
       :error -> {:error, :invalid_type, "#{shown(var, raw)} is not an integer"}
     end
   end
@@ -51,9 +64,11 @@ defmodule Docuconf.Value do
   end
 
   defp parse_type(%Var{type: "duration"} = var, raw) do
-    case Duration.parse(raw) do
+    encoding = encoding(var)
+
+    case Duration.parse(raw, encoding) do
       {:ok, ns} -> {:ok, ns}
-      :error -> {:error, :invalid_type, "#{shown(var, raw)} is not a Go duration such as 1m30s"}
+      :error -> {:error, :invalid_type, "#{shown(var, raw)} is not #{@duration_forms[encoding]}"}
     end
   end
 
@@ -66,25 +81,8 @@ defmodule Docuconf.Value do
   defp parse_type(%Var{type: "enum"}, raw), do: {:ok, raw}
 
   defp parse_type(%Var{type: "list"} = var, raw) do
-    items = String.split(raw, var.separator)
-
-    if var.items == "int" do
-      Enum.reduce_while(Enum.with_index(items), {:ok, []}, fn {item, i}, {:ok, acc} ->
-        case parse_int(item) do
-          {:ok, n} ->
-            {:cont, {:ok, [n | acc]}}
-
-          _ ->
-            {:halt,
-             {:error, :invalid_type, "item #{i + 1} (#{shown(var, item)}) is not an integer"}}
-        end
-      end)
-      |> case do
-        {:ok, acc} -> {:ok, Enum.reverse(acc)}
-        err -> err
-      end
-    else
-      {:ok, items}
+    with {:ok, items} <- list_items(var, encoding(var), raw) do
+      if var.items == "int", do: int_items(var, items), else: {:ok, items}
     end
   end
 
@@ -96,6 +94,61 @@ defmodule Docuconf.Value do
       {:error, reason} ->
         detail = if var.secret, do: "", else: " (#{json_error(reason)})"
         {:error, :invalid_type, "is not valid JSON#{detail}"}
+    end
+  end
+
+  # csv and indexed items are strings; json items are already typed.
+  defp list_items(var, "csv", raw), do: {:ok, String.split(raw, var.separator)}
+  defp list_items(_var, "indexed", items) when is_list(items), do: {:ok, items}
+
+  defp list_items(var, "json", raw) do
+    item? = if var.items == "int", do: &is_integer/1, else: &is_binary/1
+
+    case JSON.decode(raw) do
+      {:ok, items} when is_list(items) ->
+        case Enum.find_index(items, &(not item?.(&1))) do
+          nil -> {:ok, items}
+          i -> {:error, :invalid_type, "item #{i + 1} is not #{article(var.items)}"}
+        end
+
+      {:ok, _} ->
+        {:error, :invalid_type, "is not a JSON array"}
+
+      {:error, reason} ->
+        detail = if var.secret, do: "", else: " (#{json_error(reason)})"
+        {:error, :invalid_type, "is not a JSON array#{detail}"}
+    end
+  end
+
+  defp article("int"), do: "an integer"
+  defp article("string"), do: "a string"
+
+  defp int_items(var, items) do
+    items
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, []}, fn
+      {n, _i}, {:ok, acc} when is_integer(n) ->
+        if n < @int_min or n > @int_max,
+          do: {:halt, {:error, :out_of_range, "an item is outside the 64-bit integer range"}},
+          else: {:cont, {:ok, [n | acc]}}
+
+      {item, i}, {:ok, acc} ->
+        case parse_int(item) do
+          {:ok, n} ->
+            {:cont, {:ok, [n | acc]}}
+
+          :range ->
+            {:halt,
+             {:error, :out_of_range,
+              "item #{i} (#{shown(var, item)}) is outside the 64-bit integer range"}}
+
+          :error ->
+            {:halt, {:error, :invalid_type, "item #{i} (#{shown(var, item)}) is not an integer"}}
+        end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      err -> err
     end
   end
 
@@ -256,6 +309,14 @@ defmodule Docuconf.Value do
 
       var.max_items && n > var.max_items ->
         {:error, :too_many_items, "has #{n} items, more than maxItems #{var.max_items}"}
+
+      var.item_min != nil and Enum.any?(v, &(&1 < var.item_min)) ->
+        i = Enum.find_index(v, &(&1 < var.item_min))
+        {:error, :out_of_range, "item #{i + 1} is below itemMin #{var.item_min}"}
+
+      var.item_max != nil and Enum.any?(v, &(&1 > var.item_max)) ->
+        i = Enum.find_index(v, &(&1 > var.item_max))
+        {:error, :out_of_range, "item #{i + 1} is above itemMax #{var.item_max}"}
 
       true ->
         :ok

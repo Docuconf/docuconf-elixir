@@ -18,7 +18,12 @@ defmodule Docuconf.VarsTest do
     env :poll, :duration, description: "Poll interval", unit: :duration, default: "1m30s"
     env :level, {:in, [:debug, :info]}, description: "Log level", default: :info
     env :origins, {:list, :string}, description: "CORS origins", min_items: 1, max_items: 2
-    env :ports, {:list, :integer}, description: "Worker ports", separator: ";"
+
+    env :ports, {:list, :integer},
+      description: "Worker ports",
+      separator: ";",
+      item_min: 1,
+      item_max: 65535
 
     env :limits, :json,
       description: "Rate limits",
@@ -120,7 +125,9 @@ defmodule Docuconf.VarsTest do
 
   test "bad int, bad url and invalid scheme" do
     assert codes(load(%{"PORT" => "80.5"})) == [{"PORT", :invalid_type}]
-    assert codes(load(%{"PORT" => "99999999999999999999"})) == [{"PORT", :invalid_type}]
+    # SPEC §5: outside the 64-bit range is out_of_range, not invalid_type.
+    assert codes(load(%{"PORT" => "99999999999999999999"})) == [{"PORT", :out_of_range}]
+    assert codes(load(%{"PORTS" => "1;9223372036854775808"})) == [{"PORTS", :out_of_range}]
     assert codes(load(%{"DATABASE_URL" => "not a url"})) == [{"DATABASE_URL", :invalid_type}]
     assert codes(load(%{"DATABASE_URL" => "mysql://db/x"})) == [{"DATABASE_URL", :invalid_scheme}]
     assert codes(load(%{"ORIGINS" => ""})) == []
@@ -146,6 +153,50 @@ defmodule Docuconf.VarsTest do
 
     # Valid secrets load normally.
     assert {:ok, %Env{api_token: ^secret}} = load(%{"API_TOKEN" => secret})
+  end
+
+  test "list items outside item_min and item_max are out_of_range" do
+    assert {:ok, %Env{ports: [1, 65535]}} = load(%{"PORTS" => "1;65535"})
+    assert codes(load(%{"PORTS" => "80;0"})) == [{"PORTS", :out_of_range}]
+    assert codes(load(%{"PORTS" => "65536"})) == [{"PORTS", :out_of_range}]
+  end
+
+  defmodule Encoded do
+    use Docuconf, name: "encoded"
+
+    env :brokers, {:list, :string}, description: "Kafka brokers", encoding: :indexed
+    env :shards, {:list, :integer}, description: "Shard ids", encoding: :json, item_max: 9
+    env :grace, :duration, description: "Shutdown grace", encoding: :iso8601
+    env :ttl, :duration, description: "Cache TTL", encoding: :seconds, unit: :second
+    env :window, :duration, description: "Rate window", encoding: :timespan
+  end
+
+  test "declared list and duration encodings are parsed" do
+    env = %{
+      "BROKERS__0" => "kafka-0:9092",
+      "BROKERS__1" => "kafka-1:9092",
+      "SHARDS" => "[1,2]",
+      "GRACE" => "PT1.5S",
+      "TTL" => "90",
+      "WINDOW" => "00:01:00"
+    }
+
+    assert {:ok, %Encoded{} = e} = Encoded.load(env: env, termination_log: false, warn: false)
+    assert e.brokers == ["kafka-0:9092", "kafka-1:9092"]
+    assert e.shards == [1, 2]
+    assert {e.grace, e.ttl, e.window} == {1500, 90, 60_000}
+
+    bad = %{"SHARDS" => "[1,10]", "GRACE" => "1s", "TTL" => "1m", "WINDOW" => "1m"}
+
+    assert {:error, %{violations: vs}} =
+             Encoded.load(env: bad, termination_log: false, warn: false)
+
+    assert Enum.map(vs, &{&1.input, &1.code}) == [
+             {"GRACE", :invalid_type},
+             {"SHARDS", :out_of_range},
+             {"TTL", :invalid_type},
+             {"WINDOW", :invalid_type}
+           ]
   end
 
   test "values are never trimmed" do

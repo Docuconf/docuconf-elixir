@@ -38,9 +38,9 @@ defmodule Docuconf.MixProject do
 
   defp package do
     [
-      # Licence pending: add `licenses: [...]` here before the first publish.
+      licenses: ["MIT"],
       links: %{"GitHub" => @source_url, "Specification" => "https://docuconf.dev"},
-      files: ~w(lib mix.exs README.md RELEASING.md .formatter.exs)
+      files: ~w(lib mix.exs README.md RELEASING.md LICENSE .formatter.exs)
     ]
   end
 

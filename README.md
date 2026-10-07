@@ -112,10 +112,10 @@ input, and `load/1`, `load!/1` and `export/1`.
 | `:integer` | `int` | 64-bit integer | `min`, `max` |
 | `:float` | `float` | float (`NaN`/`Inf` rejected) | `min`, `max` |
 | `:boolean` | `bool` | `true`/`false`, case-insensitive | |
-| `:duration` | `duration` (`go` encoding) | integer in `unit` | `min`, `max`, `unit` |
+| `:duration` | `duration` | integer in `unit` | `min`, `max`, `unit`, `encoding` |
 | `:url` | `url` | string with `scheme://` | `schemes` |
 | `{:in, values}` | `enum` | string | |
-| `{:list, :string}`, `{:list, :integer}` | `list` (`csv` encoding) | list | `separator` (default `,`), `min_items`, `max_items` |
+| `{:list, :string}`, `{:list, :integer}` | `list` | list | `encoding`, `separator` (default `,`), `min_items`, `max_items`; `item_min`, `item_max` (integer lists) |
 | `:json` | `json` | decoded JSON | `schema` |
 
 Every variable takes `description` (or `doc`; at least 5 characters, required),
@@ -128,12 +128,24 @@ Every variable takes `description` (or `doc`; at least 5 characters, required),
   `:millisecond` (the default, matching OTP timeouts), `:second`,
   `:microsecond`, `:nanosecond`, or `:duration` for an Elixir `Duration`.
   A value that is not a whole number of the unit is rejected.
+- **Encodings** (SPEC §5) say how the platform writes a list or duration
+  into the environment. Lists: `:csv` (the default, joined by `separator`),
+  `:json` (`["a","b"]`) or `:indexed` (`NAME__0`, `NAME__1`, ...).
+  Durations: `:go` (the default), `:iso8601` (`PT1M30S`), `:seconds` (`90`)
+  or `:timespan` (`00:01:30`). The contract records the encoding, and the
+  platform renders to it.
 - **Patterns** are RE2 and match anywhere in the value, as in CUE; anchor
   them with `^` and `$`. A `~r` sigil or a string both work. PCRE-only
   features (lookaround, backreferences, atomic groups, possessive
   quantifiers) are rejected at compile time. Matching follows RE2, not
   PCRE: `$` means end of text (not "before a final newline"), and `\d`,
   `\w`, `\s` and `\b` are ASCII-only.
+- **Item bounds**: `item_min` and `item_max` bound each item of a
+  `{:list, :integer}` and are exported as `itemMin` and `itemMax`. An item
+  outside them is `out_of_range`. Elixir integers are unbounded, so nothing
+  is exported automatically: every item is already checked against the
+  64-bit range the contract's `int` means. Set the bounds yourself when the
+  items go somewhere narrower, such as a port (`item_min: 1, item_max: 65535`).
 - **Empty strings** are present values for `:string` and unset for every
   other type. Values are never trimmed.
 - **JSON schemas** are a JSON Schema map, or a keyword spec in the
@@ -285,15 +297,48 @@ instead if the platform needs to supply structured configuration.
 `certificate_name_mismatch`, `key_mismatch`, `keystore_unreadable`
 (SPEC §11.2). Each `Docuconf.Violation` has `input`, `kind`, `code` and `message`.
 
+## Contract-first mode
+
+`Docuconf.Contract` validates an environment against a contract given as
+JSON (`cue export contract.cue --out json`), with no `use Docuconf` module,
+for teams that write their contract in CUE by hand (SPEC §11.2 item 11):
+
+```elixir
+{:ok, values} = Docuconf.Contract.load(File.read!("contract.json"), env: System.get_env())
+values["PORT"] #=> 8080
+```
+
+The contract is turned into the same declaration the DSL builds, so it gets
+the same checks and parsers. Values are keyed by variable or file input
+name. Durations are integers in `duration_unit:` (`:nanosecond` by default).
+Every list and duration encoding is parsed. It rejects `reload: "watch"`
+(it starts no watcher), `overlays` and `profiles`; a `yaml` or `toml` config
+file needs `decoders: %{"yaml" => &YamlElixir.read_from_string/1}`.
+
+## Conformance
+
+`test/conformance_test.exs` runs the shared conformance suite (SPEC §12,
+`conformance/cases.json` in docuconf-go) through contract-first mode, one
+ExUnit test per case, named by the case `id`:
+
+```sh
+DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json \
+DOCUCONF_REQUIRE_CONFORMANCE=1 mix test test/conformance_test.exs
+```
+
+Without `DOCUCONF_CONFORMANCE` the runner reads
+`../docuconf-go/conformance/cases.json`, and skips when it is missing unless
+`DOCUCONF_REQUIRE_CONFORMANCE=1`. CI sets both, using its docuconf-go
+checkout. No capability tags are skipped: Elixir integers hold every 64-bit
+value (`int64`), and `json` values are validated against their JSON Schema
+(`json-schema`).
+
 ## Not covered yet
 
 - Profiles (SPEC §4.4). Elixir's `config/*.exs` files are compiled into the
   release, so a value there is an ordinary `default:`. There is no runtime
   profile selector to export.
-- `list` encodings other than `csv`, and duration encodings other than `go`.
-  These are the encodings this SDK parses, and the contract records them.
-- The contract-first mode (loading a `contract.cue` with no declaration),
-  Markdown docs generation and `deprecated.replaced_by` fallback reads.
+- Markdown docs generation and `deprecated.replaced_by` fallback reads.
 
 ## Development
 
@@ -311,5 +356,4 @@ is found automatically). The test is skipped when `cue` is missing, unless
 
 ## Licence
 
-The licence has not been chosen yet, so this repository has no LICENSE file.
-Do not publish the package until one is added (see [RELEASING.md](RELEASING.md)).
+MIT. See [LICENSE](LICENSE).

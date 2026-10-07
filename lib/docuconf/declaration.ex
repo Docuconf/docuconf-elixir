@@ -20,6 +20,9 @@ defmodule Docuconf.Var do
     :items,
     :min_items,
     :max_items,
+    :item_min,
+    :item_max,
+    :encoding,
     :schema,
     :spec,
     :default,
@@ -99,10 +102,10 @@ defmodule Docuconf.Declaration do
     "int" => [:min, :max],
     "float" => [:min, :max],
     "bool" => [],
-    "duration" => [:min, :max, :unit],
+    "duration" => [:min, :max, :unit, :encoding],
     "url" => [:schemes],
     "enum" => [:values],
-    "list" => [:separator, :min_items, :max_items],
+    "list" => [:separator, :min_items, :max_items, :item_min, :item_max, :encoding],
     "json" => [:schema]
   }
 
@@ -234,6 +237,9 @@ defmodule Docuconf.Declaration do
         separator: Keyword.get(opts, :separator, ","),
         min_items: opts[:min_items],
         max_items: opts[:max_items],
+        item_min: opts[:item_min],
+        item_max: opts[:item_max],
+        encoding: opts[:encoding] && to_string(opts[:encoding]),
         unit: Keyword.get(opts, :unit, :millisecond),
         flag_warning: Keyword.get(opts, :flag_warning, true)
       }
@@ -328,7 +334,7 @@ defmodule Docuconf.Declaration do
   defp dur(other, what),
     do: {nil, ["#{what} must be a Go duration string such as \"30s\", got #{inspect(other)}"]}
 
-  defp common_var_problems(%Var{} = v, _opts) do
+  defp common_var_problems(%Var{} = v, opts) do
     [
       {not Regex.match?(~r/^[A-Z][A-Z0-9_]*\z/, v.name), "name must match ^[A-Z][A-Z0-9_]*$"},
       {not (is_binary(v.description) and String.length(v.description) >= 5),
@@ -354,6 +360,19 @@ defmodule Docuconf.Declaration do
        "minLength is greater than maxLength"},
       {v.min_items != nil and v.max_items != nil and v.min_items > v.max_items,
        "minItems is greater than maxItems"},
+      {v.type == "list" and v.encoding not in [nil, "csv", "json", "indexed"],
+       "encoding must be :csv, :json or :indexed"},
+      {v.type == "list" and v.encoding not in [nil, "csv"] and Keyword.has_key?(opts, :separator),
+       "separator applies only to the csv encoding"},
+      {v.type == "duration" and v.encoding != nil and v.encoding not in Duration.encodings(),
+       "encoding must be :go, :iso8601, :seconds or :timespan"},
+      {v.type == "list" and v.items != "int" and (v.item_min != nil or v.item_max != nil),
+       "item_min and item_max apply only to {:list, :integer}"},
+      {(v.item_min != nil and not is_integer(v.item_min)) or
+         (v.item_max != nil and not is_integer(v.item_max)),
+       "item_min and item_max must be integers"},
+      {is_integer(v.item_min) and is_integer(v.item_max) and v.item_min > v.item_max,
+       "item_min is greater than item_max"},
       {v.schemes != nil and v.schemes == [], "schemes must not be empty"}
     ]
     |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)

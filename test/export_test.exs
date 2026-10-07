@@ -115,6 +115,28 @@ defmodule Docuconf.ExportTest do
       end
     end
 
+    test "every list and duration encoding passes cue vet -c", ctx do
+      if ctx[:cue] do
+        [{mod, _}] =
+          Code.compile_string("""
+          defmodule Docuconf.ExportTest.Encodings do
+            use Docuconf, name: "encodings"
+            env :a, {:list, :string}, description: "Indexed list", encoding: :indexed
+            env :b, {:list, :integer}, description: "JSON list", encoding: :json, item_min: 0
+            env :c, {:list, :string}, description: "CSV list", separator: ";"
+            env :d, :duration, description: "ISO duration", encoding: :iso8601
+            env :e, :duration, description: "Seconds duration", encoding: :seconds
+            env :f, :duration, description: "TimeSpan duration", encoding: :timespan
+          end
+          """)
+
+        contract = mod.export()
+        assert contract =~ ~s(encoding: "indexed")
+        refute contract =~ ~r/encoding: "json"\n\t*separator/
+        assert {"", 0} == vet(ctx, contract)
+      end
+    end
+
     defp vet(%{cue: cue, spec: spec}, contract) do
       dir = tmp_dir()
       File.cp_r!(Path.join(spec, "cue.mod"), Path.join(dir, "cue.mod"))
