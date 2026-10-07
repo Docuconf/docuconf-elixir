@@ -81,7 +81,9 @@ defmodule Docuconf.CUE do
       v.max && {"max", Duration.format(v.max)}
     ]
 
-  defp type_fields(%Var{type: "url"} = v), do: [v.schemes && {"schemes", v.schemes}]
+  defp type_fields(%Var{type: "url"} = v),
+    do: [v.schemes && {"schemes", v.schemes}, v.max_length && {"maxLength", v.max_length}]
+
   defp type_fields(%Var{type: "enum"} = v), do: [{"values", v.values}]
 
   defp type_fields(%Var{type: "list"} = v),
@@ -92,10 +94,14 @@ defmodule Docuconf.CUE do
       v.min_items && {"minItems", v.min_items},
       v.max_items && {"maxItems", v.max_items},
       v.item_min != nil && {"itemMin", v.item_min},
-      v.item_max != nil && {"itemMax", v.item_max}
+      v.item_max != nil && {"itemMax", v.item_max},
+      v.item_min_length && {"itemMinLength", v.item_min_length},
+      v.item_max_length && {"itemMaxLength", v.item_max_length}
     ]
 
-  defp type_fields(%Var{type: "json"} = v), do: [v.schema && {"schema", v.schema}]
+  defp type_fields(%Var{type: "json"} = v),
+    do: [v.max_length && {"maxLength", v.max_length}, v.schema && {"schema", v.schema}]
+
   defp type_fields(_), do: []
 
   @doc false

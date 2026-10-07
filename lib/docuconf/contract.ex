@@ -52,6 +52,8 @@ defmodule Docuconf.Contract do
     "maxItems" => :max_items,
     "itemMin" => :item_min,
     "itemMax" => :item_max,
+    "itemMinLength" => :item_min_length,
+    "itemMaxLength" => :item_max_length,
     "encoding" => :encoding,
     "schema" => :schema
   }

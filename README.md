@@ -317,10 +317,10 @@ repository's tests (`test/readme_test.exs`) for dev, prod and the
 | `:float` | `float` | float (`NaN`/`Inf` rejected) | `min`, `max` |
 | `:boolean` | `bool` | `true`/`false`, case-insensitive | |
 | `:duration` | `duration` | integer in `unit` | `min`, `max`, `unit`, `encoding` |
-| `:url` | `url` | string with `scheme://` | `schemes` |
+| `:url` | `url` | string with `scheme://` | `schemes`, `max_length` |
 | `{:in, values}` | `enum` | an atom if every value is an atom, else a string | |
-| `{:list, :string}`, `{:list, :integer}` | `list` | list | `encoding`, `separator` (default `,`), `min_items`, `max_items`; `item_min`, `item_max` (integer lists) |
-| `:json` | `json` | decoded JSON | `schema` |
+| `{:list, :string}`, `{:list, :integer}` | `list` | list | `encoding`, `separator` (default `,`), `min_items`, `max_items`; `item_min`, `item_max` (integer lists); `item_min_length`, `item_max_length` (string lists) |
+| `:json` | `json` | decoded JSON | `schema`, `max_length` |
 
 Every variable takes `description` (or `doc`; at least 5 characters, required),
 `required`, `default`, `secret`, `group`, `examples`, `deprecated`
@@ -353,6 +353,15 @@ Every variable takes `description` (or `doc`; at least 5 characters, required),
 - **Item bounds**: `item_min` and `item_max` bound each item of a
   `{:list, :integer}` and are exported as `itemMin` and `itemMax`. Every
   item is already checked against the 64-bit range of the contract's `int`.
+- **Lengths** count characters, meaning Unicode code points
+  (`String.to_charlist/1`), never bytes or graphemes: `"日本"` is 2 and
+  `"ZÜ01"` fits `item_max_length: 4`. `max_length` on a `:url` bounds the
+  string as it is; on a `:json` it bounds the wire string, the raw value as
+  received (whitespace included), or the compact JSON for a default.
+  `item_min_length` and `item_max_length` bound each item of a
+  `{:list, :string}` after it is split, so separators never count, and are
+  exported as `itemMinLength` and `itemMaxLength`. A value outside a length
+  limit is `out_of_range`; a secret reports its length, never its value.
 - **Empty strings** are present values for `:string` and unset for every
   other type. Values are never trimmed.
 - **JSON schemas** are a JSON Schema map, or a keyword spec in the

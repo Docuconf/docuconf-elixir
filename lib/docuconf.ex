@@ -76,9 +76,11 @@ defmodule Docuconf do
   `required`, `default`, `secret`, `group`, `examples`, `deprecated`,
   `config_key`, `name`, `flag_warning`; by type, `min`/`max` (integer,
   float, duration), `min_length`/`max_length`/`pattern` (string; RE2,
-  partial match), `schemes` (url), `values` (enum), `min_items`/`max_items`/
-  `separator` (list), `item_min`/`item_max` (integer list items), `schema`
-  (json: a JSON Schema map or a keyword spec), `unit` (duration:
+  partial match; lengths in code points), `schemes` and `max_length` (url),
+  `values` (enum), `min_items`/`max_items`/`separator` (list),
+  `item_min`/`item_max` (integer list items), `item_min_length`/
+  `item_max_length` (string list items), `schema` (json: a JSON Schema map
+  or a keyword spec) and `max_length` (json: its wire string), `unit` (duration:
   `:millisecond` by default, `:second`, `:microsecond`, `:nanosecond` or
   `:duration` for an Elixir `Duration`), `encoding` (list: `:csv`, `:json`
   or `:indexed`; duration: `:go`, `:iso8601`, `:seconds` or `:timespan`).

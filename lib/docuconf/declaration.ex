@@ -22,6 +22,8 @@ defmodule Docuconf.Var do
     :max_items,
     :item_min,
     :item_max,
+    :item_min_length,
+    :item_max_length,
     :encoding,
     :schema,
     :spec,
@@ -121,10 +123,19 @@ defmodule Docuconf.Declaration do
     "float" => [:min, :max],
     "bool" => [],
     "duration" => [:min, :max, :unit, :encoding],
-    "url" => [:schemes],
+    "url" => [:schemes, :max_length],
     "enum" => [:values],
-    "list" => [:separator, :min_items, :max_items, :item_min, :item_max, :encoding],
-    "json" => [:schema]
+    "list" => [
+      :separator,
+      :min_items,
+      :max_items,
+      :item_min,
+      :item_max,
+      :item_min_length,
+      :item_max_length,
+      :encoding
+    ],
+    "json" => [:schema, :max_length]
   }
 
   @common_file_opts [
@@ -297,6 +308,8 @@ defmodule Docuconf.Declaration do
         max_items: opts[:max_items],
         item_min: opts[:item_min],
         item_max: opts[:item_max],
+        item_min_length: opts[:item_min_length],
+        item_max_length: opts[:item_max_length],
         encoding: opts[:encoding] && to_string(opts[:encoding]),
         unit: Keyword.get(opts, :unit, :millisecond),
         flag_warning: Keyword.get(opts, :flag_warning, true)
@@ -521,12 +534,26 @@ defmodule Docuconf.Declaration do
        "item_min and item_max must be integers"},
       {is_integer(v.item_min) and is_integer(v.item_max) and v.item_min > v.item_max,
        "item_min is greater than item_max"},
+      {v.type == "list" and v.items != "string" and
+         (v.item_min_length != nil or v.item_max_length != nil),
+       "#{item_lengths(v)} apply only to {:list, :string}"},
+      {Enum.any?(
+         [v.max_length, v.item_min_length, v.item_max_length],
+         &(&1 != nil and not (is_integer(&1) and &1 >= 0))
+       ), "lengths must be non-negative integers"},
+      {is_integer(v.item_min_length) and is_integer(v.item_max_length) and
+         v.item_min_length > v.item_max_length,
+       "#{Var.opt_name(v, "item_min_length", "itemMinLength")} is greater than #{Var.opt_name(v, "item_max_length", "itemMaxLength")}"},
       {v.schemes != nil and v.schemes == [], "schemes must not be empty"}
     ]
     |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)
     |> Kernel.++(pattern_problems(v.pattern))
     |> Kernel.++(default_problems(v))
   end
+
+  defp item_lengths(v),
+    do:
+      "#{Var.opt_name(v, "item_min_length", "itemMinLength")} and #{Var.opt_name(v, "item_max_length", "itemMaxLength")}"
 
   defp pattern_problems(nil), do: []
 
