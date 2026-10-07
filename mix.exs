@@ -45,6 +45,10 @@ defmodule Docuconf.MixProject do
   end
 
   defp docs do
-    [main: "readme", extras: ["README.md", "CHANGELOG.md", "RELEASING.md"], source_ref: "v#{@version}"]
+    [
+      main: "readme",
+      extras: ["README.md", "CHANGELOG.md", "RELEASING.md"],
+      source_ref: "v#{@version}"
+    ]
   end
 end
