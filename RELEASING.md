@@ -40,3 +40,40 @@ a `v*` tag is pushed.
 To retire a bad release, use `mix hex.retire docuconf 0.1.0 invalid --message "..."`
 rather than reverting it. Hex allows `mix hex.publish --revert` only within
 an hour of publishing.
+
+## GitHub Packages and Releases
+
+GitHub Packages has no Hex registry, so the GitHub copy of each release is the
+GitHub Release. The `github` job in `.github/workflows/release.yml` runs on
+the same `v*` tags, repeats the tag check, compile and tests, builds the Hex
+package with `mix hex.build`, creates the GitHub Release for the tag if it
+does not exist, and attaches `docuconf-<version>.tar`, the exact tarball Hex
+would get.
+
+It does not depend on the Hex `publish` job, so it works before the Hex
+owner, API key and `hex` environment exist. It uses only the workflow's own
+`GITHUB_TOKEN` (`contents: write`); there are no secrets or accounts to set
+up, and nothing to configure beyond the `Docuconf` organization allowing
+`GITHUB_TOKEN` write access (it does unless restricted under Organization
+settings > Actions).
+
+### Installing from a GitHub Release
+
+No token is needed for a public repository. Mix installs from git, so the
+simplest way to use a release without Hex is the tag itself:
+
+```elixir
+{:docuconf, github: "Docuconf/docuconf-elixir", tag: "v0.1.0"}
+```
+
+To use the released tarball, download and unpack it, and point Mix at the
+directory:
+
+```sh
+curl -sSLO https://github.com/Docuconf/docuconf-elixir/releases/download/v0.1.0/docuconf-0.1.0.tar
+mkdir -p vendor/docuconf && tar -xOf docuconf-0.1.0.tar contents.tar.gz | tar -xzf - -C vendor/docuconf
+```
+
+```elixir
+{:docuconf, path: "vendor/docuconf"}
+```
