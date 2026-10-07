@@ -13,9 +13,27 @@ defmodule Docuconf.LoadedFile do
     * `caBundle`: the list of certificates as DER, ready for `cacerts:`;
     * `text`: the file's content;
     * `keystore`, `binary`: `nil` (read the file at `path` yourself).
+
+  `secret` is true for a secret `config` or `text` file; `inspect/2` then
+  shows its `data` as `**redacted**`.
   """
-  @type t :: %__MODULE__{name: String.t(), type: String.t(), path: String.t(), data: term()}
-  defstruct [:name, :type, :path, :data]
+  @type t :: %__MODULE__{
+          name: String.t(),
+          type: String.t(),
+          path: String.t(),
+          data: term(),
+          secret: boolean()
+        }
+  defstruct [:name, :type, :path, :data, secret: false]
+
+  defimpl Inspect do
+    # The content of a secret config or text file is never printed.
+    def inspect(%{secret: true} = f, opts),
+      do: Docuconf.Redacted.inspect_struct(f, [:name, :type, :path, :data], [:data], opts)
+
+    def inspect(f, opts),
+      do: Docuconf.Redacted.inspect_struct(f, [:name, :type, :path, :data], [], opts)
+  end
 end
 
 defmodule Docuconf.Loader do
@@ -32,7 +50,7 @@ defmodule Docuconf.Loader do
   of field => public value, or `{:error, violations, warnings}`.
   """
   def run(%Declaration{} = d, opts) do
-    env = environment(opts)
+    {env, env_warnings} = environment(opts)
     opts = Keyword.put_new(opts, :file_root, Map.get(env, "DOCUCONF_FILE_ROOT"))
 
     {vars, var_violations, warnings} =
@@ -67,7 +85,9 @@ defmodule Docuconf.Loader do
       end)
 
     warnings =
-      warnings ++
+      env_warnings ++
+        typo_warnings(d, env) ++
+        warnings ++
         for f <- d.files,
             f.deprecated,
             File.exists?(Files.resolve_path(f, env, opts[:file_root])) do
@@ -166,13 +186,119 @@ defmodule Docuconf.Loader do
   def injector_scheme(raw) when is_binary(raw),
     do: Enum.find(@injector_schemes, &String.starts_with?(raw, &1))
 
-  defp environment(opts) do
+  @doc false
+  # The environment a load reads, lowest precedence first: `:fallback_env`,
+  # the `.env` file, then the real environment (or `:env`). Returns
+  # `{env, warnings}`. `nil` and `false` turn `:dotenv` and `:fallback_env`
+  # off, so `dotenv: config_env() == :dev && ".env"` works.
+  def environment(opts) do
     env = Keyword.get_lazy(opts, :env, &System.get_env/0)
 
-    case Keyword.get(opts, :dotenv) do
-      nil -> env
-      # Real environment variables override the .env file (SPEC §11.2 item 4).
-      path -> Map.merge(Docuconf.Dotenv.read(path), env)
+    {dotenv, warnings} =
+      case Keyword.get(opts, :dotenv) do
+        off when off in [nil, false] ->
+          {%{}, []}
+
+        path when is_binary(path) ->
+          if File.regular?(path),
+            do: {Docuconf.Dotenv.read(path), []},
+            else: {%{}, ["dotenv file #{path} does not exist; nothing was read from it"]}
+
+        other ->
+          raise ArgumentError,
+                "docuconf: :dotenv must be a path, nil or false, got: #{inspect(other)}"
+      end
+
+    fallback =
+      case Keyword.get(opts, :fallback_env) do
+        off when off in [nil, false] ->
+          %{}
+
+        %{} = map ->
+          Map.new(map, fn {k, v} -> {to_string(k), to_string(v)} end)
+
+        other ->
+          raise ArgumentError,
+                "docuconf: :fallback_env must be a map of variable name to value, nil or false, got: " <>
+                  inspect(other)
+      end
+
+    # Real environment variables override the .env file (SPEC §11.2 item 4).
+    {fallback |> Map.merge(dotenv) |> Map.merge(env), warnings}
+  end
+
+  # SPEC-wide hint: a set variable that is not declared but is a likely typo
+  # of a declared name. A warning only, and it never shows the value.
+  defp typo_warnings(%Declaration{} = d, env) do
+    declared = Enum.map(d.vars, & &1.name)
+    path_envs = for f <- d.files, f.path_env, do: f.path_env
+
+    for key <- env |> Map.keys() |> Enum.sort(),
+        Regex.match?(~r/^[A-Z][A-Z0-9_]*\z/, key),
+        key not in declared,
+        key not in path_envs,
+        not String.starts_with?(key, "DOCUCONF_"),
+        not Enum.any?(declared, &String.starts_with?(key, &1 <> "__")),
+        match = closest(key, declared) do
+      "#{key} is set but not declared; did you mean #{match}?"
+    end
+  end
+
+  defp closest(key, names) do
+    names
+    |> Enum.map(&{&1, distance(key, &1)})
+    # Short names are close to many unrelated ones (HOST and PORT differ by
+    # two letters), so they get a tighter limit.
+    |> Enum.filter(fn {name, dist} -> dist <= if(String.length(name) >= 6, do: 2, else: 1) end)
+    |> Enum.min_by(fn {_, dist} -> dist end, fn -> nil end)
+    |> case do
+      {name, _} -> name
+      nil -> nil
+    end
+  end
+
+  @doc false
+  # Optimal string alignment distance: Levenshtein plus adjacent swaps, so
+  # PROT is one edit from PORT.
+  def distance(a, b) do
+    a = String.graphemes(a) |> List.to_tuple()
+    b = String.graphemes(b) |> List.to_tuple()
+    {la, lb} = {tuple_size(a), tuple_size(b)}
+
+    if abs(la - lb) > 2 do
+      3
+    else
+      d =
+        for i <- 0..la, j <- 0..lb, reduce: %{} do
+          acc ->
+            v =
+              cond do
+                i == 0 ->
+                  j
+
+                j == 0 ->
+                  i
+
+                true ->
+                  cost = if elem(a, i - 1) == elem(b, j - 1), do: 0, else: 1
+
+                  best =
+                    Enum.min([
+                      acc[{i - 1, j}] + 1,
+                      acc[{i, j - 1}] + 1,
+                      acc[{i - 1, j - 1}] + cost
+                    ])
+
+                  if i > 1 and j > 1 and elem(a, i - 1) == elem(b, j - 2) and
+                       elem(a, i - 2) == elem(b, j - 1),
+                     do: min(best, acc[{i - 2, j - 2}] + 1),
+                     else: best
+              end
+
+            Map.put(acc, {i, j}, v)
+        end
+
+      d[{la, lb}]
     end
   end
 
@@ -180,13 +306,21 @@ defmodule Docuconf.Loader do
   Writes the message to the Kubernetes termination log so `kubectl describe
   pod` shows it. `DOCUCONF_TERMINATION_LOG` overrides the path (and is
   written even if it does not exist yet); the default path is only written
-  when it exists, that is inside a container. Best effort.
+  when it exists, that is inside a container. A load given `:env` writes
+  none unless `:termination_log` is set. Best effort.
   """
   def write_termination_log(message, opts) do
     override =
       case Keyword.fetch(opts, :termination_log) do
-        {:ok, v} -> v
-        :error -> System.get_env("DOCUCONF_TERMINATION_LOG")
+        {:ok, v} ->
+          v
+
+        # A load from an explicit env map (a test) never writes the
+        # process's termination log unless asked to.
+        :error ->
+          if Keyword.has_key?(opts, :env),
+            do: false,
+            else: System.get_env("DOCUCONF_TERMINATION_LOG")
       end
 
     target =
@@ -215,7 +349,7 @@ defmodule Docuconf.Dotenv do
   A minimal `.env` reader for local development (opt-in with
   `dotenv: ".env"`). Supports `KEY=value`, `export KEY=value`, comments,
   and single- or double-quoted values (double quotes understand `\\n`).
-  A missing file is an empty environment.
+  A missing file is an empty environment (`Docuconf.load/2` warns about it).
   """
 
   @spec read(Path.t()) :: %{String.t() => String.t()}

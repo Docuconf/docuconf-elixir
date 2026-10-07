@@ -133,7 +133,7 @@ defmodule Docuconf.FilesTest do
     tls(ctx, [leaf], ctx.pki.leaf_key)
     {:error, e} = load(ctx)
     assert [%{code: :certificate_expiring, message: msg}] = e.violations
-    assert msg =~ "less than minRemaining 720h"
+    assert msg =~ "less than min_remaining 720h"
   end
 
   test "an expired or not-yet-valid certificate", ctx do

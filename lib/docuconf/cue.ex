@@ -98,6 +98,13 @@ defmodule Docuconf.CUE do
   defp type_fields(%Var{type: "json"} = v), do: [v.schema && {"schema", v.schema}]
   defp type_fields(_), do: []
 
+  @doc false
+  # A default as one line of text, for generated docs.
+  def default_text(%Var{type: "duration", default: ns}), do: Duration.format(ns)
+  def default_text(%Var{type: "list", default: l}) when is_list(l), do: Enum.join(l, ",")
+  def default_text(%Var{type: "json", default: d}), do: JSON.encode!(d)
+  def default_text(%Var{default: d}), do: to_string(d)
+
   defp export_default(%Var{type: "duration", default: ns}), do: Duration.format(ns)
   defp export_default(%Var{default: d}), do: d
 

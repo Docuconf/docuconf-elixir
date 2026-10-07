@@ -4,12 +4,14 @@ defmodule Orders.Env do
 
   env :port, :integer, description: "HTTP listen port", default: 8080, min: 1, max: 65535
 
-  env :log_level, {:in, ~w(debug info warn error)},
+  # Atom values come back as atoms, ready for Logger.
+  env :log_level, {:in, [:debug, :info, :warning, :error]},
     description: "Minimum log level",
-    default: "info"
+    default: :info
 
-  # A secret: docuconf never prints its value, and the contract tells the
-  # platform to supply it from a Kubernetes Secret.
+  # A secret: docuconf never prints its value (not in errors, and not when
+  # Orders.Env is inspected or logged), and the contract tells the platform
+  # to supply it from a Kubernetes Secret.
   secret :database_url, :url,
     description: "Postgres connection string",
     required: true,

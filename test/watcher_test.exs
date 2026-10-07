@@ -49,6 +49,36 @@ defmodule Docuconf.WatcherTest do
     File.write!(Path.join(root, "etc/svc/motd/motd.txt"), "changed")
     refute_receive {:changed, :motd, _}, 200
   end
+
+  defmodule DotenvEnv do
+    use Docuconf, name: "watched-dotenv"
+
+    config_file :routes,
+      format: :json,
+      description: "Routing table",
+      path: "/etc/svc/routes/routes.json",
+      reload: :watch
+  end
+
+  test "the watcher reads the environment the way load did, .env included", %{root: root} do
+    dotenv = Path.join(root, ".env")
+    File.write!(dotenv, "DOCUCONF_FILE_ROOT=#{root}\n")
+
+    assert {:ok, %{routes: %{data: %{"routes" => ["/a"]}}}} =
+             DotenvEnv.load(dotenv: dotenv, watcher_check: false, termination_log: false)
+
+    test = self()
+
+    start_supervised!(
+      {Docuconf.Watcher,
+       module: DotenvEnv,
+       interval: 20,
+       on_change: fn field, file -> send(test, {:changed, field, file.data}) end}
+    )
+
+    File.write!(Path.join(root, "etc/svc/routes/routes.json"), ~s({"routes": ["/c"]}))
+    assert_receive {:changed, :routes, %{"routes" => ["/c"]}}, 1_000
+  end
 end
 
 defmodule Docuconf.WatcherCheckTest do
@@ -156,6 +186,8 @@ defmodule Docuconf.WatcherCheckTest do
     assert status == 1
     assert out =~ "Boot.Env declares reload: watch for motd, but no Docuconf.Watcher is running"
     refute out =~ "still running"
+    # Printed once, not once raw and once through Logger.
+    assert length(String.split(out, "no Docuconf.Watcher is running")) == 2
     assert File.read!(log) =~ "no Docuconf.Watcher is running"
   end
 end
