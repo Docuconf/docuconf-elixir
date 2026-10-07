@@ -45,7 +45,7 @@ defmodule Docuconf.Files do
   defp check(%FileInput{type: "tls"} = f, dir, _vars, report, opts) do
     case File.stat(dir) do
       {:error, :enoent} ->
-        if f.required, do: report.(:file_missing, "#{dir} not found")
+        if f.required, do: report.(:file_missing, "#{dir} not found#{root_hint(opts)}")
         nil
 
       {:error, reason} ->
@@ -62,7 +62,7 @@ defmodule Docuconf.Files do
   end
 
   defp check(%FileInput{} = f, path, vars, report, opts) do
-    case stat(f, path, report) do
+    case stat(f, path, report, opts) do
       :absent ->
         nil
 
@@ -83,10 +83,18 @@ defmodule Docuconf.Files do
     end
   end
 
-  defp stat(f, path, report) do
+  # Outside a container the absolute mount paths rarely exist; say how to
+  # read them under a local directory instead.
+  defp root_hint(opts) do
+    if Keyword.get(opts, :file_root) in [nil, ""],
+      do: " (outside a container, set DOCUCONF_FILE_ROOT to read it under a local directory)",
+      else: ""
+  end
+
+  defp stat(f, path, report, opts) do
     case File.stat(path) do
       {:error, :enoent} ->
-        if f.required, do: report.(:file_missing, "#{path} not found")
+        if f.required, do: report.(:file_missing, "#{path} not found#{root_hint(opts)}")
         :absent
 
       {:error, reason} ->
@@ -99,7 +107,11 @@ defmodule Docuconf.Files do
 
       {:ok, %File.Stat{size: size}} ->
         if f.max_size && size > f.max_size do
-          report.(:file_too_large, "#{path} is #{size} bytes, more than maxSize #{f.max_size}")
+          report.(
+            :file_too_large,
+            "#{path} is #{size} bytes, more than #{Docuconf.Var.opt_name(f, "max_size", "maxSize")} #{f.max_size}"
+          )
+
           :error
         else
           {:ok, size}
@@ -158,11 +170,11 @@ defmodule Docuconf.Files do
 
         f.min_length && len < f.min_length ->
           {:out_of_range,
-           "#{path}: content is #{len} characters, shorter than minLength #{f.min_length}"}
+           "#{path}: content is #{len} characters, shorter than #{Docuconf.Var.opt_name(f, "min_length", "minLength")} #{f.min_length}"}
 
         f.max_length && len > f.max_length ->
           {:out_of_range,
-           "#{path}: content is #{len} characters, longer than maxLength #{f.max_length}"}
+           "#{path}: content is #{len} characters, longer than #{Docuconf.Var.opt_name(f, "max_length", "maxLength")} #{f.max_length}"}
 
         f.pattern && not RE2.matches?(f.pattern, content) ->
           {:pattern_mismatch, "#{path}: content does not match pattern #{inspect(f.pattern)}"}
@@ -264,5 +276,11 @@ defmodule Docuconf.Files do
   defp strip_bom(s), do: s
 
   defp loaded(f, path, data),
-    do: %Docuconf.LoadedFile{name: f.name, type: f.type, path: path, data: data}
+    do: %Docuconf.LoadedFile{
+      name: f.name,
+      type: f.type,
+      path: path,
+      data: data,
+      secret: Docuconf.FileInput.secret_data?(f)
+    }
 end

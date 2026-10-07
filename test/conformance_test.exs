@@ -50,7 +50,12 @@ defmodule Docuconf.ConformanceTest do
       Path.join(System.tmp_dir!(), "docuconf-conformance-#{System.unique_integer([:positive])}")
 
     result =
-      Docuconf.Contract.load(c["contract"], env: c["env"], termination_log: log, warn: false)
+      Docuconf.Contract.load(c["contract"],
+        env: c["env"],
+        termination_log: log,
+        warn: false,
+        duration_unit: :nanosecond
+      )
 
     written = File.read(log)
     File.rm(log)
@@ -60,7 +65,7 @@ defmodule Docuconf.ConformanceTest do
         assert {:ok, values} = result, "#{id}: expected success, got #{inspect(result)}"
 
         for {name, want} <- c["expect"] do
-          got = to_json(vars[name], Map.get(values, name))
+          got = to_json(vars[name], values[name])
 
           assert same?(got, want),
                  "#{id}: #{name} is #{inspect(got)}, expected #{inspect(want)}"

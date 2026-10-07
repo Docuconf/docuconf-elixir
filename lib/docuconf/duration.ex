@@ -224,6 +224,62 @@ defmodule Docuconf.Duration do
     IO.iodata_to_binary(parts)
   end
 
+  @doc """
+  Formats nanoseconds in a wire encoding (see `parse/2`).
+
+      iex> Docuconf.Duration.format(30_000_000_000, "iso8601")
+      "PT30S"
+      iex> Docuconf.Duration.format(5_400_500_000_000, "iso8601")
+      "PT1H30M0.5S"
+      iex> Docuconf.Duration.format(90_000_000_000, "seconds")
+      "90"
+      iex> Docuconf.Duration.format(90_000_000_000, "timespan")
+      "00:01:30"
+  """
+  @spec format(nanoseconds(), String.t()) :: String.t()
+  def format(ns, "go"), do: format(ns)
+
+  def format(ns, "iso8601") when ns >= 0 do
+    {h, m, s, frac} = hms(ns)
+
+    parts =
+      [h > 0 && "#{h}H", m > 0 && "#{m}M", (s > 0 or frac != "" or ns == 0) && "#{s}#{frac}S"]
+      |> Enum.filter(& &1)
+
+    "PT" <> Enum.join(parts)
+  end
+
+  def format(ns, "seconds") when ns >= 0 do
+    {_, _, _, frac} = hms(ns)
+    "#{div(ns, 1_000_000_000)}#{frac}"
+  end
+
+  def format(ns, "timespan") when ns >= 0 do
+    {h, m, s, frac} = hms(ns)
+    {d, h} = {div(h, 24), rem(h, 24)}
+    pad = &String.pad_leading(Integer.to_string(&1), 2, "0")
+    if(d > 0, do: "#{d}.", else: "") <> "#{pad.(h)}:#{pad.(m)}:#{pad.(s)}#{frac}"
+  end
+
+  def format(ns, _encoding), do: format(ns)
+
+  defp hms(ns) do
+    secs = div(ns, 1_000_000_000)
+    nanos = rem(ns, 1_000_000_000)
+
+    frac =
+      if nanos == 0,
+        do: "",
+        else:
+          "." <>
+            (nanos
+             |> Integer.to_string()
+             |> String.pad_leading(9, "0")
+             |> String.trim_trailing("0"))
+
+    {div(secs, 3600), div(rem(secs, 3600), 60), rem(secs, 60), frac}
+  end
+
   @doc "Canonicalises a Go duration string (`90m` becomes `1h30m`)."
   @spec canonical(String.t()) :: {:ok, String.t()} | :error
   def canonical(s) do
@@ -260,4 +316,24 @@ defmodule Docuconf.Duration do
 
   @doc false
   def units, do: Map.keys(@unit_ns) ++ [:duration]
+
+  @doc false
+  # An integer in `unit` as nanoseconds; `:error` for `:duration`, which has
+  # no integer form.
+  def from_unit(i, unit) when is_integer(i) do
+    case Map.fetch(@unit_ns, unit) do
+      {:ok, per} -> {:ok, i * per}
+      :error -> :error
+    end
+  end
+
+  @doc false
+  # An Elixir Duration as nanoseconds; `:error` when it has years or months.
+  def from_elixir(%{__struct__: Duration, year: 0, month: 0} = d) do
+    {us, _precision} = d.microsecond
+    secs = ((d.week * 7 + d.day) * 24 + d.hour) * 3600 + d.minute * 60 + d.second
+    {:ok, secs * 1_000_000_000 + us * 1_000}
+  end
+
+  def from_elixir(_), do: :error
 end

@@ -27,7 +27,11 @@ defmodule Docuconf.Watcher do
       when a changed file fails its checks; the app keeps its previous
       value. Defaults to logging a warning;
     * `:interval` - poll interval in milliseconds (default 5000);
-    * `:env`, `:file_root` - as for `Docuconf.load/2`.
+    * `:env`, `:dotenv`, `:fallback_env`, `:file_root` - as for
+      `Docuconf.load/2`. By default the watcher reads the environment the
+      way the module's last successful `load` did (the same `:dotenv`,
+      `:fallback_env` and `:file_root`), so a `DOCUCONF_FILE_ROOT` set in
+      `.env` applies to both.
 
   ## The watcher must run
 
@@ -59,8 +63,9 @@ defmodule Docuconf.Watcher do
   def init(opts) do
     module = Keyword.fetch!(opts, :module)
     decl = module.__docuconf__()
-    env = Keyword.get_lazy(opts, :env, &System.get_env/0)
-    file_root = Keyword.get(opts, :file_root, Map.get(env, "DOCUCONF_FILE_ROOT"))
+    env_opts = Keyword.merge(remembered(module), opts)
+    {env, _warnings} = Docuconf.Loader.environment(env_opts)
+    file_root = Keyword.get(env_opts, :file_root) || Map.get(env, "DOCUCONF_FILE_ROOT")
     watched = Enum.filter(decl.files, &(&1.reload == "watch"))
     :persistent_term.put({__MODULE__, module}, self())
 
@@ -76,6 +81,16 @@ defmodule Docuconf.Watcher do
 
     if watched != [], do: schedule(state)
     {:ok, state}
+  end
+
+  # The state holds the whole environment, secrets included; crash reports
+  # and :sys.get_status/1 show it without the values.
+  @impl true
+  def format_status(status) do
+    Map.update(status, :state, nil, fn
+      %{env: env} = state -> %{state | env: "(#{map_size(env)} variables, not shown)"}
+      other -> other
+    end)
   end
 
   @impl true
@@ -125,6 +140,24 @@ defmodule Docuconf.Watcher do
         Enum.map_join(violations, "\n", &("  - " <> Docuconf.Violation.format(&1)))
     )
   end
+
+  @remembered [:dotenv, :fallback_env, :file_root]
+
+  @doc false
+  # Called by Docuconf.load/2 after a successful load from the process
+  # environment: records how it read the environment (never the values), so
+  # the watcher reads it the same way.
+  def remember(module, opts) do
+    unless Keyword.has_key?(opts, :env) do
+      kept = Keyword.take(opts, @remembered)
+      key = {__MODULE__, :load_opts, module}
+      if :persistent_term.get(key, nil) != kept, do: :persistent_term.put(key, kept)
+    end
+
+    :ok
+  end
+
+  defp remembered(module), do: :persistent_term.get({__MODULE__, :load_opts, module}, [])
 
   @doc false
   # Is a watcher running for `module`?
@@ -211,12 +244,12 @@ defmodule Docuconf.Watcher do
         fun.(message)
 
       :warn ->
-        IO.puts(:stderr, message)
         Logger.error(message)
 
+      # Printed once, to standard error: Logger may not flush before the
+      # node stops.
       :halt ->
         IO.puts(:stderr, message)
-        Logger.error(message)
         Docuconf.Loader.write_termination_log(message, opts)
         System.stop(1)
     end

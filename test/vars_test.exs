@@ -45,7 +45,7 @@ defmodule Docuconf.VarsTest do
 
   test "typed values and defaults" do
     assert {:ok, env} = load(%{})
-    assert %Env{port: 4000, sample_rate: 0.5, debug: false, timeout: 30_000, level: "info"} = env
+    assert %Env{port: 4000, sample_rate: 0.5, debug: false, timeout: 30_000, level: :info} = env
     assert env.poll == Duration.new!(second: 90)
     assert env.origins == nil
     assert env.motd == nil
@@ -147,7 +147,8 @@ defmodule Docuconf.VarsTest do
     msg = Exception.message(e)
     refute msg =~ "SUPERSECRET"
     refute msg =~ "hunter2"
-    refute msg =~ "mysql"
+    # The scheme is not the secret; the credentials and host are.
+    assert msg =~ ~s(scheme "mysql" is not one of postgres, ecto)
     assert msg =~ "API_TOKEN [pattern_mismatch]"
     assert msg =~ "DATABASE_URL [invalid_scheme]"
 
