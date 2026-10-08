@@ -15,7 +15,7 @@ and builds against the SDK in this repository (`{:docuconf, path: "../.."}`).
 |---|---|---|
 | `PORT` | int | 1–65535, default 8080 |
 | `LOG_LEVEL` | enum (atoms in Elixir) | `debug`, `info`, `warning`, `error`; default `info` |
-| `DATABASE_URL` | url | secret, required, scheme `postgres` |
+| `DATABASE_URL` | url | secret, required, scheme `postgres`, at most 2048 characters |
 | `ALLOWED_ORIGINS` | list of strings (comma-separated) | at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration (`30s`, `1m30s`) | 1s–5m, default `30s` |
 | `WORKER_COUNT` | int | 1–64, default 4 |
@@ -66,6 +66,21 @@ mix docuconf.export --check  # fails if contract.cue is out of date (CI runs thi
 
 `mix.exs` names the declaration module (`docuconf: [module: Orders.Env]`).
 Never edit `contract.cue` by hand.
+
+## Generated docs
+
+[`CONFIG.md`](CONFIG.md) (for developers), [`CONFIG.agents.md`](CONFIG.agents.md)
+(for AI agents) and `docs.json` (the docs model both are rendered from) are
+generated from `contract.cue` by the `docuconf` CLI from
+[docuconf-go](https://github.com/docuconf/docuconf-go). Never edit them by hand
+either; regenerate them after exporting the contract (CI runs each with
+`--check` in place of `-o`, against the committed `contract.cue`):
+
+```sh
+docuconf docs contract.cue -o CONFIG.md
+docuconf docs contract.cue --format agents -o CONFIG.agents.md
+docuconf docs contract.cue --format model -o docs.json
+```
 
 ## Deploy it
 

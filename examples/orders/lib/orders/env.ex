@@ -15,7 +15,8 @@ defmodule Orders.Env do
   secret :database_url, :url,
     description: "Postgres connection string",
     required: true,
-    schemes: ["postgres"]
+    schemes: ["postgres"],
+    max_length: 2048
 
   env :allowed_origins, {:list, :string},
     description: "Origins allowed to call the API (CORS)",

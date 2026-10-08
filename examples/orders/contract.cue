@@ -31,6 +31,7 @@ contract.#Contract & {
 			required: true
 			secret: true
 			schemes: ["postgres"]
+			maxLength: 2048
 		}
 		LOG_LEVEL: {
 			type: "enum"
