@@ -23,21 +23,25 @@ a `v*` tag is pushed.
 
 ## Each release
 
-1. Update `@version` in `mix.exs`. The SDK writes that version into every
-   exported contract (`metadata.generator.version`), so regenerate the
-   golden file and the example contract:
-   ```sh
-   UPDATE_GOLDEN=1 mix test
-   (cd examples/orders && mix docuconf.export)
-   ```
-2. Commit, then tag and push:
-   ```sh
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
+Releases are automated with
+[release-please](https://github.com/googleapis/release-please); see
+[CONTRIBUTING.md](CONTRIBUTING.md#how-releases-happen) for the commit
+conventions it reads.
+
+1. Merge the open release PR (`chore(main): release X.Y.Z`). It already
+   updates `@version` in `mix.exs` and `CHANGELOG.md`. The golden file and
+   the example contract do not need regenerating: their comparisons ignore
+   `metadata.generator.version`.
+2. release-please tags the merge commit `vX.Y.Z` and creates the GitHub
+   release with the changelog entries.
 3. The workflow checks that the tag matches `mix.exs`, runs the tests
    (including `cue vet` against the docuconf-go meta-schema), then runs
    `mix hex.publish --yes`, which publishes the package and its docs.
+
+If the release PR was created with `GITHUB_TOKEN` (no release GitHub App
+configured), the tag does not trigger `release.yml` by itself, so
+`.github/workflows/release-please.yml` starts it with `gh workflow run`. To
+redo a release by hand: `gh workflow run release.yml --ref vX.Y.Z`.
 
 To retire a bad release, use `mix hex.retire docuconf 0.1.0 invalid --message "..."`
 rather than reverting it. Hex allows `mix hex.publish --revert` only within
