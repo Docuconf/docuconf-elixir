@@ -50,6 +50,7 @@ defmodule Docuconf.CUE do
     ([
        {"type", v.type},
        {"description", v.description},
+       v.details && {"details", v.details},
        v.required && {"required", true},
        v.secret && {"secret", true},
        v.group && {"group", v.group},
@@ -128,6 +129,7 @@ defmodule Docuconf.CUE do
        {"type", f.type},
        f.type in ["config", "keystore"] && {"format", f.format},
        {"description", f.description},
+       f.details && {"details", f.details},
        f.required && {"required", true},
        f.secret && {"secret", true},
        f.group && {"group", f.group},

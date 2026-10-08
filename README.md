@@ -322,8 +322,8 @@ repository's tests (`test/readme_test.exs`) for dev, prod and the
 | `{:list, :string}`, `{:list, :integer}` | `list` | list | `encoding`, `separator` (default `,`), `min_items`, `max_items`; `item_min`, `item_max` (integer lists); `item_min_length`, `item_max_length` (string lists) |
 | `:json` | `json` | decoded JSON | `schema`, `max_length` |
 
-Every variable takes `description` (or `doc`; at least 5 characters, required),
-`required`, `default`, `secret`, `group`, `examples`, `deprecated`
+Every variable takes `description` (or `doc`; at least 5 characters, required
+unless an `@doc` gives it), `details` (see below), `required`, `default`, `secret`, `group`, `examples`, `deprecated`
 (a message, or `[message: ..., replaced_by: "NEW_NAME"]`), `config_key`,
 `name` and `flag_warning`.
 
@@ -379,6 +379,42 @@ that look like feature flags (`FF_`, `FEATURE_`, `ENABLE_`) get a compile
 warning on their line (SPEC §10); `flag_warning: false` on that declaration
 silences it for a deploy-time switch.
 
+### Descriptions and details
+
+Document an input with `@doc`, as you would a function. Its first paragraph
+is the contract's `description` (on one line, without the final period) and
+the rest is `details`: Markdown for generated docs, at most 4000 characters,
+never read at runtime.
+
+```elixir
+defmodule MyApp.DocumentedEnv do
+  use Docuconf, name: "my-app"
+
+  @doc """
+  Upstream request timeout.
+
+  Raise it for clients that upload large batches. Keep it below the load
+  balancer's idle timeout, or the client sees a reset rather than a `504`.
+  """
+  env :request_timeout, :duration, default: "30s"
+
+  env :pool_size, :pos_integer,
+    description: "Database connection pool size",
+    details: "One connection per scheduler is a good start.",
+    default: 10
+end
+```
+
+The `description:` and `details:` options set either one explicitly and win
+over the `@doc`, which `env`, `secret` and the file declarations consume, so
+it never documents the next function. ExDoc-only syntax becomes CommonMark:
+auto-link prefixes (`` `m:Mod` ``, `` `t:Mod.t/0` ``) are dropped,
+``[text](`Mod.fun/1`)`` links become code spans and `{: .info}` attributes are
+removed. A missing or short description, and details that are blank or longer
+than 4000 characters, fail compilation. `docuconf docs` in the
+[docuconf CLI](https://github.com/docuconf/docuconf-go) generates `CONFIG.md`
+and `CONFIG.agents.md` from the exported contract.
+
 ### Declaring files
 
 | Macro | Contract type | `data` after loading | Extra options |
@@ -413,8 +449,9 @@ defmodule MyApp.Files do
 end
 ```
 
-All take `description`, `path` (absolute), `path_env`, `required`, `secret`,
-`reload` (`:restart` or `:watch`), `max_size`, `group` and `deprecated`. The
+All take `description` (or an `@doc`, as for variables), `details`, `path`
+(absolute), `path_env`, `required`, `secret`, `reload` (`:restart` or
+`:watch`), `max_size`, `group` and `deprecated`. The
 input name is the field with `_` replaced by `-` (`:serving_tls` is
 `serving-tls`). A loaded file is a `%Docuconf.LoadedFile{path, data}`; an
 absent optional file is `nil`. A secret `config` or `text` file's `data` is

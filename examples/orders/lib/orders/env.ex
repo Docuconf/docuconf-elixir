@@ -22,8 +22,13 @@ defmodule Orders.Env do
     min_items: 1,
     default: ["http://localhost:3000"]
 
+  @doc """
+  Time limit for one request.
+
+  Raise it when clients upload large order batches. Keep it below the load
+  balancer's idle timeout, or the client sees a reset rather than a `504`.
+  """
   env :request_timeout, :duration,
-    description: "Time limit for one request",
     min: "1s",
     max: "5m",
     default: "30s"

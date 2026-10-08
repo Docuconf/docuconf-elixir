@@ -6,6 +6,7 @@ defmodule Docuconf.Var do
     :name,
     :type,
     :description,
+    :details,
     :group,
     :examples,
     :deprecated,
@@ -54,6 +55,7 @@ defmodule Docuconf.FileInput do
     :name,
     :type,
     :description,
+    :details,
     :path,
     :path_env,
     :max_size,
@@ -107,6 +109,7 @@ defmodule Docuconf.Declaration do
   @common_var_opts [
     :description,
     :doc,
+    :details,
     :required,
     :default,
     :secret,
@@ -141,6 +144,7 @@ defmodule Docuconf.Declaration do
   @common_file_opts [
     :description,
     :doc,
+    :details,
     :required,
     :secret,
     :path,
@@ -290,6 +294,7 @@ defmodule Docuconf.Declaration do
         type: t,
         origin: origin,
         description: description,
+        details: opts[:details],
         required: opts[:required] == true,
         secret: opts[:secret] == true,
         group: opts[:group],
@@ -322,7 +327,9 @@ defmodule Docuconf.Declaration do
           "#{k} must be true or false, got #{inspect(opts[k])}"
         end
 
-      problems = problems ++ bool_problems ++ common_var_problems(var, opts)
+      problems =
+        problems ++
+          bool_problems ++ common_var_problems(var, opts) ++ Docuconf.Docs.problems(var.details)
 
       label = "#{label} (#{name})"
 
@@ -604,6 +611,7 @@ defmodule Docuconf.Declaration do
           name: name,
           type: type,
           description: opts[:description] || opts[:doc],
+          details: opts[:details],
           required: opts[:required] == true,
           secret: type in ["tls", "keystore"] or opts[:secret] == true,
           path: opts[:path],
@@ -628,7 +636,9 @@ defmodule Docuconf.Declaration do
         {min_remaining, dur_problems} = dur(opts[:min_remaining], "min_remaining")
         f = %{f | min_remaining: min_remaining}
 
-        problems = schema_problems ++ dur_problems ++ file_problems(f, opts)
+        problems =
+          schema_problems ++
+            dur_problems ++ file_problems(f, opts) ++ Docuconf.Docs.problems(f.details)
 
         if problems == [], do: {:ok, f}, else: {:error, Enum.map(problems, &"#{label}: #{&1}")}
 

@@ -21,4 +21,4 @@ export MIX_ENV=test
 cd "$(dirname "$0")/.."
 # The test environment has no Hex dependencies (ex_doc is dev only).
 mix deps.get --only test
-mix test test/conformance_test.exs test/export_test.exs
+mix test test/conformance_test.exs test/export_test.exs test/docs_test.exs
