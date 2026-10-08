@@ -3,6 +3,7 @@ defmodule Docuconf.MixProject do
 
   @version "0.1.0"
   @source_url "https://github.com/docuconf/docuconf-elixir"
+  @homepage_url "https://docuconf.dev/languages/elixir/"
 
   def project do
     [
@@ -17,7 +18,8 @@ defmodule Docuconf.MixProject do
           "for config/runtime.exs, validate them at boot and export a CUE contract.",
       package: package(),
       docs: docs(),
-      source_url: @source_url
+      source_url: @source_url,
+      homepage_url: @homepage_url
     ]
   end
 
@@ -39,12 +41,21 @@ defmodule Docuconf.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => @source_url, "Specification" => "https://docuconf.dev"},
+      links: %{
+        "GitHub" => @source_url,
+        "Documentation" => @homepage_url,
+        "Specification" => "https://docuconf.dev"
+      },
       files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs)
     ]
   end
 
   defp docs do
-    [main: "readme", extras: ["README.md", "CHANGELOG.md"], source_ref: "v#{@version}"]
+    [
+      main: "readme",
+      extras: ["README.md", "CHANGELOG.md"],
+      source_url: @source_url,
+      source_ref: "v#{@version}"
+    ]
   end
 end
