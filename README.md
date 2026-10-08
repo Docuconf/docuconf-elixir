@@ -3,6 +3,8 @@
 Typed configuration contracts for Elixir applications, from the
 [docuconf specification](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md) (v1alpha1).
 
+Documentation: [docuconf.dev](https://docuconf.dev) · [Elixir guide](https://docuconf.dev/languages/elixir/)
+
 Elixir apps read their runtime configuration in `config/runtime.exs` with
 `System.fetch_env!/1` and `System.get_env/2`. docuconf keeps that file and
 adds what it lacks:
