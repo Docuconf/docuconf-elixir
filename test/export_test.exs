@@ -146,6 +146,34 @@ defmodule Docuconf.ExportTest do
       end
     end
 
+    test "details from @doc pass cue vet -c", ctx do
+      if ctx[:cue] do
+        [{mod, _}] =
+          Code.compile_string("""
+          defmodule Docuconf.ExportTest.Details do
+            use Docuconf, name: "details"
+
+            @doc \"""
+            HTTP listen port.
+
+            Behind the mesh, keep the default.
+
+            - one
+            - two
+            \"""
+            env :port, :integer, default: 4000
+
+            @doc "Licence key file.\\n\\nRotate it yearly, \\"日本\\" included."
+            text_file :license, path: "/etc/app/license/license.key"
+          end
+          """)
+
+        out = mod.export()
+        assert out =~ "details:"
+        assert {"", 0} == vet(ctx, out)
+      end
+    end
+
     test "every list and duration encoding passes cue vet -c", ctx do
       if ctx[:cue] do
         [{mod, _}] =

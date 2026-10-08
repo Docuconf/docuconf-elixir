@@ -72,8 +72,10 @@ defmodule Docuconf do
   and `max` may be a Go string, a string in its `encoding`, an integer in
   its `unit`, or an Elixir `Duration`.
 
-  Options: `description` (or `doc`, at least 5 characters, required),
-  `required`, `default`, `secret`, `group`, `examples`, `deprecated`,
+  Options: `description` (or `doc`, at least 5 characters, required
+  unless the `@doc` before the declaration gives it: see `Docuconf.Docs`),
+  `details` (Markdown for generated docs, at most 4000 characters; by
+  default the rest of the `@doc`), `required`, `default`, `secret`, `group`, `examples`, `deprecated`,
   `config_key`, `name`, `flag_warning`; by type, `min`/`max` (integer,
   float, duration), `min_length`/`max_length`/`pattern` (string; RE2,
   partial match; lengths in code points), `schemes` and `max_length` (url),
@@ -91,7 +93,10 @@ defmodule Docuconf do
 
     quote do
       unquote(check)
-      @docuconf_vars {unquote(field), unquote(type), unquote(opts), unquote(line)}
+      doc = Docuconf.Docs.take(__MODULE__)
+
+      @docuconf_vars {unquote(field), unquote(type), Docuconf.Docs.merge(unquote(opts), doc),
+                      unquote(line)}
     end
   end
 
@@ -102,8 +107,10 @@ defmodule Docuconf do
 
     quote do
       unquote(check)
+      doc = Docuconf.Docs.take(__MODULE__)
 
-      @docuconf_vars {unquote(field), unquote(type), Keyword.put(unquote(opts), :secret, true),
+      @docuconf_vars {unquote(field), unquote(type),
+                      unquote(opts) |> Keyword.put(:secret, true) |> Docuconf.Docs.merge(doc),
                       unquote(line)}
     end
   end
@@ -131,7 +138,9 @@ defmodule Docuconf do
   end
 
   @file_doc """
-  Common options: `description` (required), `path` (absolute; required),
+  Common options: `description` (required, or the first paragraph of the
+  `@doc` before the declaration), `details` (the rest of that `@doc`),
+  `path` (absolute; required),
   `path_env`, `required`, `secret`, `reload` (`:restart` or `:watch`; see
   `Docuconf.Watcher`), `max_size` (bytes), `group`, `deprecated`, `name`
   (the input name; defaults to the field with `_` replaced by `-`).
@@ -180,7 +189,10 @@ defmodule Docuconf do
 
     quote do
       unquote(check)
-      @docuconf_files {unquote(field), unquote(type), unquote(opts), unquote(line)}
+      doc = Docuconf.Docs.take(__MODULE__)
+
+      @docuconf_files {unquote(field), unquote(type), Docuconf.Docs.merge(unquote(opts), doc),
+                       unquote(line)}
     end
   end
 

@@ -34,6 +34,7 @@ defmodule Docuconf.Contract do
 
   @var_keys %{
     "description" => :description,
+    "details" => :details,
     "required" => :required,
     "secret" => :secret,
     "default" => :default,
@@ -60,6 +61,7 @@ defmodule Docuconf.Contract do
 
   @file_keys %{
     "description" => :description,
+    "details" => :details,
     "required" => :required,
     "secret" => :secret,
     "path" => :path,
