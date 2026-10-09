@@ -67,6 +67,11 @@ jobs:
       - name: Install cue
         run: go install cuelang.org/go/cmd/cue@v0.17.1
 
+      # The docuconf CLI, from the same checkout, compares the shared export
+      # fixture with conformance/export/golden.cue.
+      - name: Build the docuconf CLI
+        run: cd docuconf-go/cmd/docuconf && go build -o "$RUNNER_TEMP/docuconf" .
+
       - run: mix deps.get
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
@@ -77,9 +82,13 @@ jobs:
           # The shared conformance suite (SPEC §12), from the same checkout.
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
+          # The shared export check (SPEC §11.2 item 3).
+          DOCUCONF_CLI: ${{ runner.temp }}/docuconf
 
+      # Every case runs: the suite fails if any is skipped (the "skips
+      # nothing" test), and so does this script.
       - name: Run scripts/conformance.sh
-        run: DOCUCONF_GO_DIR="$GITHUB_WORKSPACE/docuconf-go" scripts/conformance.sh
+        run: DOCUCONF_GO_DIR="$GITHUB_WORKSPACE/docuconf-go" DOCUCONF_CLI="$RUNNER_TEMP/docuconf" scripts/conformance.sh
 
   example:
     name: examples/orders

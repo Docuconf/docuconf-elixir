@@ -21,7 +21,7 @@ defmodule Docuconf.Value do
 
   @doc "The wire encoding of a list or duration variable (SPEC §5)."
   def encoding(%Var{encoding: e}) when is_binary(e), do: e
-  def encoding(%Var{type: "list"}), do: "csv"
+  def encoding(%Var{type: t}) when t in ["list", "keySet"], do: "csv"
   def encoding(%Var{type: "duration"}), do: "go"
   def encoding(_), do: nil
 
@@ -90,6 +90,18 @@ defmodule Docuconf.Value do
     end
   end
 
+  # A key set travels as a list of strings (SPEC §5). Its keys are never
+  # shown, whatever the error.
+  defp parse_type(%Var{type: "keySet"} = var, raw) do
+    case list_items(%{var | items: "string"}, encoding(var), raw) do
+      {:ok, keys} ->
+        {:ok, keys}
+
+      {:error, code, _msg} ->
+        {:error, code, "is not a list of keys in the #{encoding(var)} encoding"}
+    end
+  end
+
   defp parse_type(%Var{type: "json"} = var, raw) do
     case JSON.decode(raw) do
       {:ok, v} ->
@@ -115,9 +127,10 @@ defmodule Docuconf.Value do
   defp ok_ns({:ok, ns}), do: ns
   defp ok_ns(_), do: nil
 
-  # csv and indexed items are strings; json items are already typed.
+  # csv and indexed items are strings; json items are already typed. A
+  # list from an overlay (SPEC §4.7) is already split, whatever the encoding.
+  defp list_items(_var, _encoding, items) when is_list(items), do: {:ok, items}
   defp list_items(var, "csv", raw), do: {:ok, String.split(raw, var.separator)}
-  defp list_items(_var, "indexed", items) when is_list(items), do: {:ok, items}
 
   defp list_items(var, "json", raw) do
     item? = if var.items == "int", do: &is_integer/1, else: &is_binary/1
@@ -186,25 +199,20 @@ defmodule Docuconf.Value do
     end
   end
 
-  # Locale-independent; rejects NaN, Inf and anything Float.parse would only
-  # partly consume.
+  # SPEC §5: ^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$, locale-independent,
+  # rounded to the nearest double. NaN, Inf, hex floats, ".5", "5." and a
+  # value too large for a double (1e400) are rejected.
   defp parse_float(raw) do
-    case Regex.run(~r/^([+-]?)([0-9]*)(?:\.([0-9]*))?(?:[eE]([+-]?[0-9]+))?\z/, raw) do
+    case Regex.run(~r/^([+-]?)([0-9]+)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?\z/, raw) do
       [_ | groups] ->
         [sign, int, frac, exp] = groups ++ List.duplicate("", 4 - length(groups))
+        normal = sign <> int <> "." <> zero(frac) <> if(exp == "", do: "", else: "e" <> exp)
 
-        if int == "" and frac == "" do
-          :error
-        else
-          normal =
-            sign <> zero(int) <> "." <> zero(frac) <> if(exp == "", do: "", else: "e" <> exp)
-
-          try do
-            {f, ""} = Float.parse(normal)
-            {:ok, f}
-          rescue
-            _ -> :error
-          end
+        try do
+          {f, ""} = Float.parse(normal)
+          {:ok, f}
+        rescue
+          _ -> :error
         end
 
       nil ->
@@ -374,6 +382,48 @@ defmodule Docuconf.Value do
     end
   end
 
+  # SPEC §4.3: the number of keys is too_few_items or too_many_items; a key
+  # outside keyMinLength..keyMaxLength, and an empty key whatever the
+  # bounds, is out_of_range. Messages give positions and lengths, never a key.
+  defp constraint(%Var{type: "keySet"} = var, v, _shown) do
+    n = if is_list(v), do: length(v), else: 0
+    lo = max(var.key_min_length || 1, 1)
+    hi = var.key_max_length
+
+    cond do
+      not is_list(v) or not Enum.all?(v, &is_binary/1) ->
+        {:error, :invalid_type, "is not a list of keys"}
+
+      n < var.min_keys ->
+        {:error, :too_few_items,
+         "has #{n} key#{plural(n)}, fewer than #{Var.opt_name(var, "min_keys", "minKeys")} #{var.min_keys}"}
+
+      n > var.max_keys ->
+        {:error, :too_many_items,
+         "has #{n} keys, more than #{Var.opt_name(var, "max_keys", "maxKeys")} #{var.max_keys}"}
+
+      (i = Enum.find_index(v, &(chars(&1) < lo or (hi != nil and chars(&1) > hi)))) != nil ->
+        len = v |> Enum.at(i) |> chars()
+
+        why =
+          cond do
+            len == 0 ->
+              "is empty (a stray separator?)"
+
+            len < lo ->
+              "is #{len} characters, shorter than #{Var.opt_name(var, "key_min_length", "keyMinLength")} #{lo}"
+
+            true ->
+              "is #{len} characters, longer than #{Var.opt_name(var, "key_max_length", "keyMaxLength")} #{hi}"
+          end
+
+        {:error, :out_of_range, "key #{i + 1} #{why}"}
+
+      true ->
+        :ok
+    end
+  end
+
   defp constraint(%Var{type: "json"} = var, v, _shown) do
     case var.schema && JSONSchema.validate(v, var.schema) do
       problems when problems in [nil, []] ->
@@ -413,7 +463,12 @@ defmodule Docuconf.Value do
     end
   end
 
+  defp plural(1), do: ""
+  defp plural(_), do: "s"
+
   @doc "Converts an internal value to what the app sees."
+  def to_public(%Var{type: "keySet"}, keys) when is_list(keys), do: Docuconf.KeySet.new(keys)
+
   def to_public(%Var{type: "duration", unit: unit}, ns) when is_integer(ns) do
     {:ok, v} = Duration.to_unit(ns, unit)
     v

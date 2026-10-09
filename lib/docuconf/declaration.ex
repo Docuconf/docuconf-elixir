@@ -25,6 +25,10 @@ defmodule Docuconf.Var do
     :item_max,
     :item_min_length,
     :item_max_length,
+    :min_keys,
+    :max_keys,
+    :key_min_length,
+    :key_max_length,
     :encoding,
     :schema,
     :spec,
@@ -102,9 +106,12 @@ defmodule Docuconf.Declaration do
           app_version: String.t() | nil,
           vars: [Var.t()],
           files: [FileInput.t()],
+          profiles: Docuconf.Layers.Profiles.t() | nil,
+          overlays: [Docuconf.Layers.Overlay.t()],
           warnings: [{pos_integer() | nil, String.t()}]
         }
-  defstruct [:name, :app_version, vars: [], files: [], warnings: []]
+  # profiles and overlays come only from a contract (contract-first mode).
+  defstruct [:name, :app_version, :profiles, vars: [], files: [], overlays: [], warnings: []]
 
   @common_var_opts [
     :description,
@@ -138,6 +145,7 @@ defmodule Docuconf.Declaration do
       :item_max_length,
       :encoding
     ],
+    "keySet" => [:separator, :min_keys, :max_keys, :key_min_length, :key_max_length, :encoding],
     "json" => [:schema, :max_length]
   }
 
@@ -197,6 +205,9 @@ defmodule Docuconf.Declaration do
       |> Enum.map(&located(&1, fn d -> build_file(d, var_structs, origin) end))
       |> collect()
 
+    var_structs = Enum.map(var_structs, &replaced_by(&1, var_structs))
+    file_structs = Enum.map(file_structs, &replaced_by(&1, file_structs))
+
     name = opts[:name]
 
     name_problems =
@@ -239,6 +250,21 @@ defmodule Docuconf.Declaration do
     end
   end
 
+  # `replaced_by: :port` names a field; the contract holds the input's name.
+  defp replaced_by(%{deprecated: %{replaced_by: r} = d} = input, inputs)
+       when is_atom(r) and r != nil do
+    name =
+      case Enum.find(inputs, &(&1.field == r)) do
+        %{name: n} -> n
+        nil when is_struct(input, Var) -> r |> Atom.to_string() |> String.upcase()
+        nil -> r |> Atom.to_string() |> String.replace("_", "-")
+      end
+
+    %{input | deprecated: %{d | replaced_by: name}}
+  end
+
+  defp replaced_by(input, _inputs), do: input
+
   defp located({field, type, opts}, fun), do: located({field, type, opts, nil}, fun)
 
   defp located({field, type, opts, line}, fun) do
@@ -257,7 +283,7 @@ defmodule Docuconf.Declaration do
 
   # ---- variables -----------------------------------------------------------
 
-  @type_names ~w(string integer float boolean duration url json pos_integer non_neg_integer)a
+  @type_names ~w(string integer float boolean duration url json key_set pos_integer non_neg_integer)a
 
   defp normalize_type(:string), do: {"string", %{}}
   defp normalize_type(t) when t in [:integer, :int], do: {"int", %{}}
@@ -271,6 +297,7 @@ defmodule Docuconf.Declaration do
   defp normalize_type(:enum), do: {"enum", %{}}
   defp normalize_type({:in, values}), do: {"enum", %{values: values}}
   defp normalize_type(:json), do: {"json", %{}}
+  defp normalize_type(:key_set), do: {"keySet", %{}}
   defp normalize_type({:list, t}) when t in [:string], do: {"list", %{items: "string"}}
   defp normalize_type({:list, t}) when t in [:integer, :int], do: {"list", %{items: "int"}}
   defp normalize_type(_), do: :error
@@ -296,7 +323,8 @@ defmodule Docuconf.Declaration do
         description: description,
         details: opts[:details],
         required: opts[:required] == true,
-        secret: opts[:secret] == true,
+        # A key set is always secret (SPEC §4.3).
+        secret: opts[:secret] == true or t == "keySet",
         group: opts[:group],
         examples: opts[:examples],
         deprecated: deprecated(opts[:deprecated]),
@@ -315,6 +343,10 @@ defmodule Docuconf.Declaration do
         item_max: opts[:item_max],
         item_min_length: opts[:item_min_length],
         item_max_length: opts[:item_max_length],
+        min_keys: if(t == "keySet", do: Keyword.get(opts, :min_keys, 1)),
+        max_keys: if(t == "keySet", do: Keyword.get(opts, :max_keys, 2)),
+        key_min_length: opts[:key_min_length],
+        key_max_length: opts[:key_max_length],
         encoding: opts[:encoding] && to_string(opts[:encoding]),
         unit: Keyword.get(opts, :unit, :millisecond),
         flag_warning: Keyword.get(opts, :flag_warning, true)
@@ -345,7 +377,7 @@ defmodule Docuconf.Declaration do
          [
            "#{label}: unknown type #{inspect(type)}#{suggest(type, @type_names)}; use :string, :integer, " <>
              ":pos_integer, :non_neg_integer, :float, :boolean, :duration, :url, {:in, values}, " <>
-             "{:list, :string | :integer} or :json"
+             "{:list, :string | :integer}, :key_set or :json"
          ]}
 
       {:unknown, bad} ->
@@ -398,10 +430,36 @@ defmodule Docuconf.Declaration do
   defp pattern_source(s) when is_binary(s), do: s
 
   defp deprecated(nil), do: nil
-  defp deprecated(msg) when is_binary(msg), do: %{message: msg}
+  defp deprecated(false), do: nil
+  defp deprecated(msg) when is_binary(msg), do: %{message: msg, replaced_by: nil}
 
   defp deprecated(opts) when is_list(opts),
     do: %{message: opts[:message], replaced_by: opts[:replaced_by]}
+
+  defp deprecated(other), do: {:invalid, other}
+
+  # SPEC §4.2: the message says what to use instead, or why the input is
+  # going away: not blank, at most 500 characters. A required input cannot
+  # be deprecated, since the platform could not stop setting it.
+  defp deprecated_problems(%{deprecated: nil}), do: []
+
+  defp deprecated_problems(%{deprecated: {:invalid, other}}),
+    do: [
+      "deprecated must be a message string or [message: ..., replaced_by: ...], got #{inspect(other)}"
+    ]
+
+  defp deprecated_problems(%{deprecated: %{message: m, replaced_by: r}} = input) do
+    [
+      {not is_binary(m) or String.trim(m) == "", "deprecated message must not be blank"},
+      {is_binary(m) and String.length(m) > 500,
+       "deprecated message is #{is_binary(m) && String.length(m)} characters, more than 500"},
+      {r != nil and not (is_binary(r) or is_atom(r)),
+       "deprecated replaced_by must name an input, got #{inspect(r)}"},
+      {input.required,
+       "a required input cannot be deprecated: the platform could not stop setting it"}
+    ]
+    |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)
+  end
 
   defp var_specifics(%Var{type: "duration"} = var, opts) do
     unit_ok = var.unit in Duration.units()
@@ -514,7 +572,7 @@ defmodule Docuconf.Declaration do
        "examples must be a list of strings"},
       {v.type == "enum" and (not is_list(v.values) or v.values == []),
        "an enum needs a non-empty values list"},
-      {v.type == "list" and not (is_binary(v.separator) and v.separator != ""),
+      {v.type in ["list", "keySet"] and not (is_binary(v.separator) and v.separator != ""),
        "separator must be a non-empty string"},
       {v.type in ["int", "float", "duration"] and v.min != nil and v.max != nil and v.min > v.max,
        "min is greater than max"},
@@ -528,10 +586,25 @@ defmodule Docuconf.Declaration do
        "#{Var.opt_name(v, "min_length", "minLength")} is greater than #{Var.opt_name(v, "max_length", "maxLength")}"},
       {v.min_items != nil and v.max_items != nil and v.min_items > v.max_items,
        "#{Var.opt_name(v, "min_items", "minItems")} is greater than #{Var.opt_name(v, "max_items", "maxItems")}"},
-      {v.type == "list" and v.encoding not in [nil, "csv", "json", "indexed"],
+      {v.type in ["list", "keySet"] and v.encoding not in [nil, "csv", "json", "indexed"],
        "encoding must be :csv, :json or :indexed"},
-      {v.type == "list" and v.encoding not in [nil, "csv"] and Keyword.has_key?(opts, :separator),
-       "separator applies only to the csv encoding"},
+      {v.type in ["list", "keySet"] and v.encoding not in [nil, "csv"] and
+         Keyword.has_key?(opts, :separator), "separator applies only to the csv encoding"},
+      {v.type == "keySet" and opts[:secret] == false,
+       "a key set is always secret; drop secret: false"},
+      {v.type == "keySet" and not (is_integer(v.min_keys) and v.min_keys >= 1),
+       "#{Var.opt_name(v, "min_keys", "minKeys")} must be an integer of at least 1"},
+      {v.type == "keySet" and is_integer(v.min_keys) and
+         not (is_integer(v.max_keys) and v.max_keys >= v.min_keys),
+       "#{Var.opt_name(v, "max_keys", "maxKeys")} must be an integer of at least #{Var.opt_name(v, "min_keys", "minKeys")} (#{v.min_keys})"},
+      {Enum.any?(
+         [v.key_min_length, v.key_max_length],
+         &(&1 != nil and not (is_integer(&1) and &1 >= 1))
+       ),
+       "#{Var.opt_name(v, "key_min_length", "keyMinLength")} and #{Var.opt_name(v, "key_max_length", "keyMaxLength")} must be integers of at least 1 (an empty key is always out of range)"},
+      {is_integer(v.key_min_length) and is_integer(v.key_max_length) and
+         v.key_min_length > v.key_max_length,
+       "#{Var.opt_name(v, "key_min_length", "keyMinLength")} is greater than #{Var.opt_name(v, "key_max_length", "keyMaxLength")}"},
       {v.type == "duration" and v.encoding != nil and v.encoding not in Duration.encodings(),
        "encoding must be :go, :iso8601, :seconds or :timespan"},
       {v.type == "list" and v.items != "int" and (v.item_min != nil or v.item_max != nil),
@@ -554,6 +627,7 @@ defmodule Docuconf.Declaration do
       {v.schemes != nil and v.schemes == [], "schemes must not be empty"}
     ]
     |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)
+    |> Kernel.++(deprecated_problems(v))
     |> Kernel.++(pattern_problems(v.pattern))
     |> Kernel.++(default_problems(v))
   end
@@ -701,7 +775,9 @@ defmodule Docuconf.Declaration do
       {f.type == "config" and f.format not in ["json", "yaml", "toml"],
        "format must be :json, :yaml or :toml"},
       {f.type == "config" and f.format in ["yaml", "toml"] and f.decoder == nil,
-       "format #{f.format} needs decoder: (Elixir has no built-in #{f.format} parser), e.g. decoder: &YamlElixir.read_from_string/1"},
+       "format #{f.format} needs decoder: (Elixir has no built-in #{f.format} parser): " <>
+         "decoder: &Docuconf.#{String.upcase(to_string(f.format))}.decode/1, or a library's, such as " <>
+         "&YamlElixir.read_from_string/1"},
       {f.decoder != nil and not decoder?(f.decoder),
        "decoder must be a remote function capture (&Mod.fun/1) or {Mod, :fun}"},
       {f.type == "keystore" and f.format not in ["pkcs12", "jks"],
@@ -718,6 +794,7 @@ defmodule Docuconf.Declaration do
        "min_length is greater than max_length"}
     ]
     |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)
+    |> Kernel.++(deprecated_problems(f))
     |> Kernel.++(pattern_problems(f.pattern))
   end
 

@@ -152,6 +152,31 @@ defmodule Docuconf.ExportTest do
       end
     end
 
+    test "the shared export fixture (a key set, deprecated inputs) passes cue vet -c", ctx do
+      if ctx[:cue] do
+        assert {"", 0} == vet(ctx, Docuconf.Test.FixtureEnv.export())
+      end
+    end
+
+    test "key sets in every encoding pass cue vet -c", ctx do
+      if ctx[:cue] do
+        [{mod, _}] =
+          Code.compile_string("""
+          defmodule Docuconf.ExportTest.KeySets do
+            use Docuconf, name: "key-sets"
+            secret :a, :key_set, description: "CSV key set", separator: ";", max_keys: 3
+            secret :b, :key_set, description: "JSON key set", encoding: :json, key_min_length: 8
+            env :c, :key_set, description: "Indexed key set", encoding: :indexed, min_keys: 2
+          end
+          """)
+
+        contract = mod.export()
+        assert contract =~ ~s(type: "keySet")
+        refute contract =~ ~r/encoding: "json"\n\t*separator/
+        assert {"", 0} == vet(ctx, contract)
+      end
+    end
+
     test "a minimal contract with no files passes cue vet -c", ctx do
       if ctx[:cue] do
         [{mod, _}] =

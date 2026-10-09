@@ -112,7 +112,9 @@ defmodule Docuconf.TLS do
   defp certs(pem, label, report) do
     case pem_certificates(pem) do
       [] ->
-        report.(:certificate_invalid, "#{label} holds no PEM certificate")
+        # SPEC §11.2 item 5: no PEM certificate at all is file_malformed;
+        # one that does not parse is certificate_invalid.
+        report.(:file_malformed, "#{label} holds no PEM certificate")
         :error
 
       list ->
@@ -136,7 +138,7 @@ defmodule Docuconf.TLS do
         {:error, "tls.key is encrypted; Kubernetes TLS secrets hold an unencrypted key"}
 
       [] ->
-        {:error, "tls.key holds no PEM private key"}
+        {:malformed, "tls.key holds no PEM private key"}
     end
   rescue
     _ -> {:error, "tls.key is not a readable PEM private key"}
@@ -153,6 +155,10 @@ defmodule Docuconf.TLS do
           report.(:key_mismatch, "tls.key does not match the certificate in tls.crt")
           false
         end
+
+      {:malformed, msg} ->
+        report.(:file_malformed, msg)
+        false
 
       {:error, msg} ->
         report.(:certificate_invalid, msg)

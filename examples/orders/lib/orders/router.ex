@@ -12,8 +12,8 @@ defmodule Orders.Router do
     end
   end
 
-  # Payment webhooks, signed with any key in WEBHOOK_KEYS (see Orders.Env
-  # for how to rotate it).
+  # Payment webhooks, signed with any key in the WEBHOOK_KEYS key set (the
+  # README walks through a rotation).
   defp payment(request) do
     keys = Application.fetch_env!(:orders, :env).webhook_keys
     body = mod(request, :entity_body)

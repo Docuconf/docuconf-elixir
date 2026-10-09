@@ -68,14 +68,18 @@ defmodule Docuconf do
   `min: 1` or `min: 0`), `:float`, `:boolean`, `:duration` (Go syntax,
   `1m30s`), `:url`, `{:in, values}` (or `:enum` with `values:`; all-atom
   values load as atoms), `{:list, :string}`, `{:list, :integer}`
-  (comma-separated by default) and `:json`. A duration's `default`, `min`
+  (comma-separated by default), `:key_set` (a `Docuconf.KeySet`: secret
+  keys that are all valid at once, for rotation; always secret) and
+  `:json`. A duration's `default`, `min`
   and `max` may be a Go string, a string in its `encoding`, an integer in
   its `unit`, or an Elixir `Duration`.
 
   Options: `description` (or `doc`, at least 5 characters, required
   unless the `@doc` before the declaration gives it: see `Docuconf.Docs`),
   `details` (Markdown for generated docs, at most 4000 characters; by
-  default the rest of the `@doc`), `required`, `default`, `secret`, `group`, `examples`, `deprecated`,
+  default the rest of the `@doc`), `required`, `default`, `secret`, `group`, `examples`,
+  `deprecated` (a message, or `[message: ..., replaced_by: :field]`; not
+  blank, at most 500 characters, and never on a required input),
   `config_key`, `name`, `flag_warning`; by type, `min`/`max` (integer,
   float, duration), `min_length`/`max_length`/`pattern` (string; RE2,
   partial match; lengths in code points), `schemes` and `max_length` (url),
@@ -84,8 +88,17 @@ defmodule Docuconf do
   `item_max_length` (string list items), `schema` (json: a JSON Schema map
   or a keyword spec) and `max_length` (json: its wire string), `unit` (duration:
   `:millisecond` by default, `:second`, `:microsecond`, `:nanosecond` or
-  `:duration` for an Elixir `Duration`), `encoding` (list: `:csv`, `:json`
-  or `:indexed`; duration: `:go`, `:iso8601`, `:seconds` or `:timespan`).
+  `:duration` for an Elixir `Duration`), `encoding` (list and key set:
+  `:csv`, `:json` or `:indexed`; duration: `:go`, `:iso8601`, `:seconds` or
+  `:timespan`), and for a key set `min_keys` (default 1), `max_keys`
+  (default 2), `key_min_length`, `key_max_length` and `separator`.
+
+  Values are parsed exactly as SPEC §5 says, whatever Elixir would accept:
+  a boolean is `true` or `false` in any case; an integer is decimal digits
+  with an optional sign (`007` is 7; `0x10`, `1_000` and `1e3` are
+  `invalid_type`); a float has a digit on each side of any point (`.5`,
+  `5.`, `inf` and `NaN` are `invalid_type`); durations follow their
+  encoding's grammar; and nothing is trimmed, csv items included.
   """
   defmacro env(field, type, opts \\ []) do
     check = ensure_used!(__CALLER__, "env")
@@ -150,7 +163,9 @@ defmodule Docuconf do
   Declares a structured config file. Extra options: `format` (`:json`,
   `:yaml` or `:toml`), `schema` (a JSON Schema map, or a keyword spec the
   file is bound to), `decoder` (`&Mod.fun/1` returning `{:ok, data}`;
-  required for YAML and TOML, since Elixir has no built-in parser for them).
+  required for YAML and TOML, since Elixir has no built-in parser for them:
+  `&Docuconf.YAML.decode/1` and `&Docuconf.TOML.decode/1` need no
+  dependency, or use a library's, such as `&YamlElixir.read_from_string/1`).
 
   #{@file_doc}
   """
@@ -313,6 +328,7 @@ defmodule Docuconf do
         "enum" -> quote(do: String.t())
         "list" when v.items == "int" -> quote(do: [integer()])
         "list" -> quote(do: [String.t()])
+        "keySet" -> quote(do: Docuconf.KeySet.t())
         "json" -> quote(do: term())
       end
 

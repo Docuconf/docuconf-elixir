@@ -100,6 +100,16 @@ defmodule Docuconf.CUE do
       v.item_max_length && {"itemMaxLength", v.item_max_length}
     ]
 
+  defp type_fields(%Var{type: "keySet"} = v),
+    do: [
+      {"encoding", Value.encoding(v)},
+      Value.encoding(v) == "csv" && {"separator", v.separator},
+      {"minKeys", v.min_keys},
+      {"maxKeys", v.max_keys},
+      v.key_min_length && {"keyMinLength", v.key_min_length},
+      v.key_max_length && {"keyMaxLength", v.key_max_length}
+    ]
+
   defp type_fields(%Var{type: "json"} = v),
     do: [v.max_length && {"maxLength", v.max_length}, v.schema && {"schema", v.schema}]
 
