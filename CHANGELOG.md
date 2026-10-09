@@ -4,6 +4,36 @@ All notable changes to docuconf for Elixir are documented here. Entries after 0.
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.2.0](https://github.com/Docuconf/docuconf-elixir/compare/v0.1.0...v0.2.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* values the spec does not allow are now rejected: a float written ".5" or "5.", a TimeSpan with one-digit minutes or seconds or more than seven fraction digits. A blank or over-long deprecated message, or a deprecated required input, no longer compiles. `replaced_by: :field` now exports the input's name instead of the field name. A tls.crt or tls.key with no PEM block is file_malformed, not certificate_invalid. The deprecation warning now reads "X is deprecated (replaced by Y): message". Contract-first mode now loads profiles and overlays, which it used to reject, and reads yaml and toml without :decoders. Docuconf.Declaration has new profiles and overlays fields. In the example, WEBHOOK_KEYS changes from a secret list to a keySet in contract.cue.
+
+### Features
+
+* beta suite (keySet, deprecated rules, strict parsing, files, profiles, overlays) ([7d80f6e](https://github.com/Docuconf/docuconf-elixir/commit/7d80f6e7e58071ba60ea40dbab82e85abb7ef583))
+* beta suite (keySet, deprecated rules, strict parsing, files, profiles, overlays) ([955682d](https://github.com/Docuconf/docuconf-elixir/commit/955682df02021ee62389a55501a2bb92a7703811))
+* **examples:** dual-key webhook key set with rotation ([5285aa3](https://github.com/Docuconf/docuconf-elixir/commit/5285aa3c9379dc675a8f9d99c8406d7e025b2071))
+* **examples:** dual-key webhook key set with rotation ([3df6789](https://github.com/Docuconf/docuconf-elixir/commit/3df67897c86204ce636d5d980bc7326151d332e8))
+* export description and details from doc comments ([aefad95](https://github.com/Docuconf/docuconf-elixir/commit/aefad958675a8674b3043547bcc209ffe7a11d77))
+* export description and details from doc comments ([716636d](https://github.com/Docuconf/docuconf-elixir/commit/716636d443f030a3bf8c384627fe32ddab72622b))
+* maxLength on url/json and item length limits on string lists ([55c3149](https://github.com/Docuconf/docuconf-elixir/commit/55c31498d6eb69fa9a7ed0ae8aeebb85a9d33aa3))
+* maxLength on url/json and item length limits on string lists ([5390e0b](https://github.com/Docuconf/docuconf-elixir/commit/5390e0b9cd6bee8314a6e4b0077b476998e7657f))
+
+
+### Bug Fixes
+
+* devX review fixes (secret redaction, clean boot failure, Phoenix recipe) ([4347d6b](https://github.com/Docuconf/docuconf-elixir/commit/4347d6b0f0f1916e2fef9f850ba0529c5f38220e))
+* escape U+2028 and U+2029 in the YAML reader ([64c0361](https://github.com/Docuconf/docuconf-elixir/commit/64c03612e6f26a484f4b115eeeeb482d401e7c99))
+
+
+### Documentation
+
+* **examples:** length limits and generated CONFIG docs ([60900ff](https://github.com/Docuconf/docuconf-elixir/commit/60900ff29cfbad59da394355951541b5832066c5))
+* link docuconf.dev ([3de6747](https://github.com/Docuconf/docuconf-elixir/commit/3de67476dfe17a9128f05747093f9d9cb7934a20))
+
 ## 0.1.0
 
 First version: typed configuration contracts for Elixir applications, implementing spec `v1alpha1`. No runtime
