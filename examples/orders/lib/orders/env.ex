@@ -39,4 +39,23 @@ defmodule Orders.Env do
     min: 1,
     max: 64,
     default: 4
+
+  @doc """
+  Keys that verify the signature on incoming payment webhooks.
+
+  A webhook is accepted when it is signed with any key in the list, so the
+  key can be rotated without turning webhooks away. To rotate:
+
+   1. add the new key as the second item, and roll out;
+   2. switch the sender to the new key;
+   3. remove the old key, and roll out.
+
+  Each key is 32 to 256 characters, so an empty or truncated key fails at
+  boot. Without this variable, the service rejects every webhook.
+  """
+  secret :webhook_keys, {:list, :string},
+    min_items: 1,
+    max_items: 2,
+    item_min_length: 32,
+    item_max_length: 256
 end
