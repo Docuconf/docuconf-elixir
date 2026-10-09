@@ -547,8 +547,8 @@ defmodule Docuconf.YAML do
           ?\\ => "\\",
           ?N => "\u0085",
           ?_ => " ",
-          ?L => " ",
-          ?P => " "
+          ?L => "\u2028",
+          ?P => "\u2029"
         }
 
         case Map.fetch(esc, c) do
