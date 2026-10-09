@@ -8,7 +8,11 @@ and builds against the SDK in this repository (`{:docuconf, path: "../.."}`).
 - [`lib/orders/env.ex`](lib/orders/env.ex) declares every variable.
 - [`config/runtime.exs`](config/runtime.exs) loads and validates them at boot.
 - [`lib/orders/router.ex`](lib/orders/router.ex) serves `GET /healthz`
-  (`ok`) and `GET /config` (the typed values as JSON, secret redacted).
+  (`ok`), `GET /config` (the typed values as JSON, secrets always redacted)
+  and `POST /webhooks/payments` (a payment webhook signed with any key in
+  `WEBHOOK_KEYS`, checked by [`lib/orders/webhook.ex`](lib/orders/webhook.ex)).
+- [`test/webhook_test.exs`](test/webhook_test.exs) walks through a key
+  rotation (`mix test`).
 - [`contract.cue`](contract.cue) is the exported contract.
 
 | Variable | Type | Rules |
@@ -19,6 +23,7 @@ and builds against the SDK in this repository (`{:docuconf, path: "../.."}`).
 | `ALLOWED_ORIGINS` | list of strings (comma-separated) | at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration (`30s`, `1m30s`) | 1s–5m, default `30s` |
 | `WORKER_COUNT` | int | 1–64, default 4 |
+| `WEBHOOK_KEYS` | list of strings (comma-separated) | secret, optional; 1–2 keys of 32–256 characters each |
 
 ## Run it
 
@@ -33,7 +38,7 @@ DATABASE_URL=postgres://orders:orders@localhost:5432/orders mix run --no-halt
 $ curl localhost:8080/healthz
 ok
 $ curl localhost:8080/config
-{"port":8080,"log_level":"info","allowed_origins":["http://localhost:3000"],"database_url":"***","request_timeout":30000,"worker_count":4}
+{"port":8080,"log_level":"info","allowed_origins":["http://localhost:3000"],"database_url":"***","request_timeout":30000,"webhook_keys":"***","worker_count":4}
 ```
 
 `request_timeout` is in milliseconds, the SDK's default unit for durations.
@@ -55,7 +60,41 @@ In Kubernetes the same report is written to `/dev/termination-log`, so
 `kubectl describe pod` shows it.
 
 [`smoke.sh`](smoke.sh) checks both runs: the endpoints with a valid
-environment, then this failure.
+environment, then this failure, and the webhook key set below.
+
+## Rotate a key
+
+`WEBHOOK_KEYS` is a key set: `POST /webhooks/payments` accepts a body whose
+`X-Signature` header is the hex HMAC-SHA256 of the body under any key in the
+list. A variable is read once, at start, so a new key reaches the service
+only when the pods restart; with two keys valid at once, no webhook is turned
+away while that happens:
+
+1. Add the new key as the second item (`old,new` in the Secret), and roll out.
+2. Switch the sender to the new key.
+3. Remove the old key (`new`), and roll out.
+
+In the platform's values, the key set is a reference to one Secret key that
+holds `old,new` while rotating:
+
+```yaml
+WEBHOOK_KEYS:
+  secretKeyRef: {name: orders-webhooks, key: keys}
+```
+
+The contract allows 1 or 2 keys of 32 to 256 characters each, so a trailing
+comma or a truncated key stops the service at boot instead of locking out
+the sender, without printing a key:
+
+```
+$ DATABASE_URL=postgres://orders:orders@localhost:5432/orders \
+    WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, mix run --no-halt
+docuconf: 1 configuration problem:
+  - WEBHOOK_KEYS [out_of_range]: item 2 is 0 characters, shorter than item_min_length 32
+```
+
+[docuconf-go's SPEC section 6.1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md#61-rotation)
+covers rotation in general.
 
 ## Export the contract
 

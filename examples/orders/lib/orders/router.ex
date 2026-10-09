@@ -7,15 +7,31 @@ defmodule Orders.Router do
     case {mod(request, :method), mod(request, :request_uri)} do
       {~c"GET", ~c"/healthz"} -> reply(200, "text/plain", "ok")
       {~c"GET", ~c"/config"} -> reply(200, "application/json", JSON.encode!(config()))
+      {~c"POST", ~c"/webhooks/payments"} -> payment(request)
       _ -> reply(404, "text/plain", "not found")
     end
   end
 
-  # The loaded configuration, typed, with the secret redacted.
+  # Payment webhooks, signed with any key in WEBHOOK_KEYS (see Orders.Env
+  # for how to rotate it).
+  defp payment(request) do
+    keys = Application.fetch_env!(:orders, :env).webhook_keys
+    body = mod(request, :entity_body)
+    signature = :proplists.get_value(~c"x-signature", mod(request, :parsed_header), ~c"")
+
+    if Orders.Webhook.verify(keys, body, List.to_string(signature)) do
+      reply(204, "text/plain", "")
+    else
+      reply(401, "text/plain", "bad signature")
+    end
+  end
+
+  # The loaded configuration, typed, with the secrets redacted, set or not.
   defp config do
     Application.fetch_env!(:orders, :env)
     |> Map.from_struct()
     |> Map.put(:database_url, "***")
+    |> Map.put(:webhook_keys, "***")
   end
 
   defp reply(code, type, body) do

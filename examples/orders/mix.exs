@@ -9,7 +9,9 @@ defmodule Orders.MixProject do
       # The SDK from this repository, not a published version.
       deps: [{:docuconf, path: "../.."}],
       # `mix docuconf.export` exports this module's contract.
-      docuconf: [module: Orders.Env]
+      docuconf: [module: Orders.Env],
+      # The tests load Orders.Env from maps; they do not start the server.
+      aliases: [test: "test --no-start"]
     ]
   end
 
