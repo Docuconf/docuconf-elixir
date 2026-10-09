@@ -53,13 +53,32 @@ defmodule Docuconf.Loader do
     {env, env_warnings} = environment(opts)
     opts = Keyword.put_new(opts, :file_root, Map.get(env, "DOCUCONF_FILE_ROOT"))
 
+    # Profiles and overlays (contract-first mode only): the layers below
+    # the environment, highest first.
+    {layers, layer_violations, layer_warnings} =
+      Docuconf.Layers.load(d, env, opts[:file_root])
+
     {vars, var_violations, warnings} =
-      Enum.reduce(d.vars, {%{}, [], []}, fn var, {vals, vios, warns} ->
+      Enum.reduce(d.vars, {%{}, [], layer_warnings}, fn var, {vals, vios, warns} ->
         raw = raw_value(env, var)
+        below = Map.get(layers, var.name, [])
 
         warns =
-          if raw != nil and var.deprecated,
-            do: warns ++ ["#{var.name} is deprecated: #{var.deprecated.message}"],
+          if raw != nil and Enum.any?(below, &match?({:overlay, _, _}, &1)),
+            do:
+              warns ++
+                [
+                  "#{var.name} is set both in the environment and in an overlay; the environment wins"
+                ],
+            else: warns
+
+        set? = raw != nil or Enum.any?(below, &(&1 == :bad or match?({:overlay, _, _}, &1)))
+
+        # SPEC §4.2: a deprecated input that is set is a warning, naming
+        # the input and its message, never the value.
+        warns =
+          if set? and var.deprecated,
+            do: warns ++ [deprecation(var)],
             else: warns
 
         warns =
@@ -72,11 +91,14 @@ defmodule Docuconf.Loader do
                  ],
              else: warns
 
-        case resolve(var, raw) do
+        case layered(var, raw, below) do
+          :bad -> {vals, vios, warns}
           {:ok, v} -> {Map.put(vals, var.name, v), vios, warns}
           {:error, code, msg} -> {vals, vios ++ [Violation.new(var.name, :var, code, msg)], warns}
         end
       end)
+
+    var_violations = layer_violations ++ var_violations
 
     {files, file_violations} =
       Enum.reduce(d.files, {%{}, []}, fn f, {vals, vios} ->
@@ -91,7 +113,7 @@ defmodule Docuconf.Loader do
         for f <- d.files,
             f.deprecated,
             File.exists?(Files.resolve_path(f, env, opts[:file_root])) do
-          "file #{f.name} is deprecated: #{f.deprecated.message}"
+          "file " <> deprecation(f)
         end
 
     case var_violations ++ file_violations do
@@ -114,7 +136,8 @@ defmodule Docuconf.Loader do
   # numbered from 0 with no gap; a gap is `{:error, :invalid_type, message}`,
   # since a host that stops at it and one that skips it read different lists.
   @doc false
-  def raw_value(env, %Var{type: "list", encoding: "indexed", name: name}) do
+  def raw_value(env, %Var{type: t, encoding: "indexed", name: name})
+      when t in ["list", "keySet"] do
     prefix = name <> "__"
 
     indexed =
@@ -147,6 +170,30 @@ defmodule Docuconf.Loader do
       # SPEC §5: empty means unset for every type but string.
       "" when var.type != "string" -> nil
       raw -> raw
+    end
+  end
+
+  defp deprecation(%{name: name, deprecated: d}) do
+    instead = if d[:replaced_by], do: " (replaced by #{d.replaced_by})", else: ""
+    "#{name} is deprecated#{instead}: #{d.message}"
+  end
+
+  # The environment, then each layer below it (an overlay, then the
+  # selected profile), then the variable's own default.
+  defp layered(var, raw, _below) when raw != nil, do: resolve(var, raw)
+  defp layered(var, nil, []), do: resolve(var, nil)
+  defp layered(_var, nil, [:bad | _]), do: :bad
+  defp layered(_var, nil, [{:profile, _name, typed} | _]), do: {:ok, typed}
+
+  defp layered(var, nil, [{:overlay, name, raw} | rest]) do
+    # As for an env value, "" is unset for every type but string.
+    if raw == "" and var.type != "string" do
+      layered(var, nil, rest)
+    else
+      case resolve(var, raw) do
+        {:error, code, msg} -> {:error, code, "from overlay #{name}: #{msg}"}
+        ok -> ok
+      end
     end
   end
 

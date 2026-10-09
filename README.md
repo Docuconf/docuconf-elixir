@@ -322,12 +322,17 @@ repository's tests (`test/readme_test.exs`) for dev, prod and the
 | `:url` | `url` | string with `scheme://` | `schemes`, `max_length` |
 | `{:in, values}` | `enum` | an atom if every value is an atom, else a string | |
 | `{:list, :string}`, `{:list, :integer}` | `list` | list | `encoding`, `separator` (default `,`), `min_items`, `max_items`; `item_min`, `item_max` (integer lists); `item_min_length`, `item_max_length` (string lists) |
+| `:key_set` | `keySet` | `Docuconf.KeySet` (always secret) | `encoding`, `separator` (default `,`), `min_keys` (default 1), `max_keys` (default 2), `key_min_length`, `key_max_length` |
 | `:json` | `json` | decoded JSON | `schema`, `max_length` |
 
 Every variable takes `description` (or `doc`; at least 5 characters, required
 unless an `@doc` gives it), `details` (see below), `required`, `default`, `secret`, `group`, `examples`, `deprecated`
-(a message, or `[message: ..., replaced_by: "NEW_NAME"]`), `config_key`,
-`name` and `flag_warning`.
+(a message, or `[message: ..., replaced_by: :new_field]`; the message is not
+blank and at most 500 characters, and a required input cannot be
+deprecated), `config_key`, `name` and `flag_warning`. A deprecated input
+that is set still loads and is still checked; at boot docuconf warns,
+naming the input and its message, never the value:
+`docuconf: warning: OLD_PORT is deprecated (replaced by PORT): Use PORT instead`.
 
 - **Durations** use Go syntax in the environment by default (`1m30s`,
   `250ms`, `1.5h`), parsed by docuconf itself because Elixir has no
@@ -366,6 +371,15 @@ unless an `@doc` gives it), `details` (see below), `required`, `default`, `secre
   limit is `out_of_range`; a secret reports its length, never its value.
 - **Empty strings** are present values for `:string` and unset for every
   other type. Values are never trimmed.
+- **Parsing is exact** (SPEC §5), whatever Elixir would accept on its own:
+  a boolean is `true` or `false` in any case (`TRUE`, `False`), never `1`,
+  `yes` or `on`; an integer is decimal digits with an optional sign (`007`
+  is 7, never octal), so `0x10`, `1_000` and `1e3` are `invalid_type`; a
+  float has a digit on each side of any point and an optional exponent, so
+  `.5`, `5.`, `inf`, `NaN` and `1e400` are `invalid_type`; each duration
+  encoding takes only its own grammar (`PT1,5S` is ISO 8601, `5` is not a
+  Go duration); and nothing is trimmed, csv items included (`a, b` is `a`
+  and ` b`).
 - **JSON schemas** are a JSON Schema map, or a keyword spec in the
   NimbleOptions style (`[per_minute: [type: :pos_integer, required: true]]`),
   from which docuconf generates the schema. A value checked against a
@@ -380,6 +394,41 @@ Calling `env` in a module without `use Docuconf` is a compile error. Names
 that look like feature flags (`FF_`, `FEATURE_`, `ENABLE_`) get a compile
 warning on their line (SPEC §10); `flag_warning: false` on that declaration
 silences it for a deploy-time switch.
+
+### Key sets
+
+A `:key_set` is a set of secret keys that are all valid at once, so a key
+can be rotated without an outage (SPEC §4.3, §6.1): during a rotation the
+platform sets `old,new`. It is always secret. Its value is a
+`Docuconf.KeySet`: `Docuconf.KeySet.keys/1` gives the keys in order,
+`contains?/2` compares a candidate (an inbound API key) with every key in
+constant time, and `verify?/2` runs your check, such as an HMAC comparison,
+against every key without stopping at the first match:
+
+```elixir
+defmodule MyApp.Env do
+  use Docuconf, name: "payments"
+
+  @doc "Keys that verify webhook signatures"
+  secret :webhook_keys, :key_set, key_min_length: 32
+end
+
+defmodule MyApp.Webhook do
+  def valid?(keys, body, signature) do
+    Docuconf.KeySet.verify?(keys, fn key ->
+      expected = :crypto.mac(:hmac, :sha256, key, body) |> Base.encode16(case: :lower)
+      byte_size(expected) == byte_size(signature) and :crypto.hash_equals(expected, signature)
+    end)
+  end
+end
+```
+
+More keys than `max_keys` (default 2) or fewer than `min_keys` (default 1)
+is `too_many_items` or `too_few_items`; a key outside
+`key_min_length`..`key_max_length`, and an empty key whatever the bounds
+(a stray comma), is `out_of_range`. No message, `inspect/2` or
+`to_string/1` ever shows a key. `docuconf docs` prints the rotation steps,
+so `details` need not repeat them.
 
 ### Descriptions and details
 
@@ -463,8 +512,11 @@ shown as `**redacted**` when inspected.
   every absolute path, including paths read from a `path_env` variable, for
   local development and tests. A missing file's error says so.
 - **YAML and TOML.** Elixir has no built-in parser, so these need a
-  `decoder:` such as `&YamlElixir.read_from_string/1` or `&Toml.decode/1`
-  (a remote capture returning `{:ok, data}`). JSON needs nothing.
+  `decoder:` (a remote capture returning `{:ok, data}`): docuconf's own
+  `&Docuconf.TOML.decode/1` (all of TOML 1.0) or `&Docuconf.YAML.decode/1`
+  (the YAML config files use, with the core schema; anchors, tags and
+  several documents are errors), or a library's, such as
+  `&YamlElixir.read_from_string/1`. JSON needs nothing.
 - **TLS** checks use `:public_key`: the key matches the certificate (by
   signing and verifying a probe), the certificate is valid now with at least
   `min_remaining` left, `:public_key.pkix_verify_hostname/3` covers every
@@ -547,12 +599,15 @@ secret variable still holds the reference; docuconf reports that as
 
 ### Config-file overlays
 
-There is no overlay API (SPEC §4.7). Elixir's `config/*.exs` files are
-compiled into the release and `config/runtime.exs` is code, not a layered
-file stack, so there is nowhere to put a platform-mounted overlay between
-the app's files and the environment. A declaration cannot carry `overlays`,
-and the exported contract never has any. Mount a `config_file` input
-instead if the platform needs to supply structured configuration.
+A `use Docuconf` declaration has no overlays or profiles (SPEC §4.4,
+§4.7). Elixir's `config/*.exs` files are compiled into the release and
+`config/runtime.exs` is code, not a layered file stack, so there is nowhere
+to put a platform-mounted overlay between the app's files and the
+environment, and a value in `config/prod.exs` is an ordinary `default:`.
+The exported contract never has either. Mount a `config_file` input instead
+if the platform needs to supply structured configuration.
+[Contract-first mode](#contract-first-mode) does read both, for contracts
+written for hosts that layer files.
 
 ### Error codes
 
@@ -586,10 +641,19 @@ the same checks and parsers. Values come back as a
 `Docuconf.Contract.Values`, keyed by variable or file input name: read them
 with `values["PORT"]`, or call `Docuconf.Contract.Values.to_map/1`.
 Inspecting it redacts secrets. Durations are integers in `duration_unit:`
-(`:millisecond` by default, as in the DSL). Every list and duration
-encoding is parsed. It rejects `reload: "watch"` (it starts no watcher),
-`overlays` and `profiles`; a `yaml` or `toml` config file needs
-`decoders: %{"yaml" => &YamlElixir.read_from_string/1}`.
+(`:millisecond` by default, as in the DSL), and a `keySet` is a
+`Docuconf.KeySet`. Every list and duration encoding is parsed.
+
+It covers the whole contract. File inputs are read under
+`DOCUCONF_FILE_ROOT`: `config` files in `json`, `yaml` and `toml` (read by
+`Docuconf.YAML` and `Docuconf.TOML` unless `decoders:` gives your own, such
+as `%{"yaml" => &YamlElixir.read_from_string/1}`), TLS key pairs, CA
+bundles, PKCS#12 keystores, `text` and `binary` files. `profiles` and
+`overlays` are layered as a host that reads config files would: the
+variable's default, then the selected profile's default, then an overlay
+(an optional file at its `path` under the file root, read at each
+variable's `configKey`), then the environment. It rejects `reload: "watch"`,
+since it starts no watcher.
 
 ### Conformance
 
@@ -605,15 +669,33 @@ DOCUCONF_REQUIRE_CONFORMANCE=1 mix test test/conformance_test.exs
 Without `DOCUCONF_CONFORMANCE` the runner reads
 `../docuconf-go/conformance/cases.json`, and skips when it is missing unless
 `DOCUCONF_REQUIRE_CONFORMANCE=1`. CI sets both, using its docuconf-go
-checkout. No capability tags are skipped: Elixir integers hold every 64-bit
-value (`int64`), and `json` values are validated against their JSON Schema
-(`json-schema`).
+checkout. Each case gets a fresh, empty directory as `DOCUCONF_FILE_ROOT`,
+with the case's files written under it.
+
+No capability tags are skipped, and the runner fails if any case is. It
+keeps an allow-list of the tags it supports: `int64` (Elixir integers hold
+every 64-bit value), `json-schema` (`json` values are validated against
+their JSON Schema), `key-set`, `deprecated`, `strict-parsing`, `files`,
+`profiles` and `overlays`. A case with any other tag, including one added
+to the suite after this release, is skipped rather than run (SPEC §12), and
+then the "skips nothing" test fails, so a new tag is noticed.
+
+`test/conformance_export_test.exs` declares the shared export fixture
+(`conformance/export/fixture.yaml`) in `test/support/fixture_env.ex`,
+exports it, and compares it with `conformance/export/golden.cue` using
+`docuconf conformance export --golden` from the same docuconf-go checkout
+(`DOCUCONF_CLI`, else `docuconf` on `PATH`). `scripts/conformance.sh` runs
+both:
+
+```sh
+DOCUCONF_GO_DIR=../docuconf-go scripts/conformance.sh
+```
 
 ### Not covered yet
 
-- Profiles (SPEC §4.4). Elixir's `config/*.exs` files are compiled into the
-  release, so a value there is an ordinary `default:`. There is no runtime
-  profile selector to export.
+- Profiles and overlays in a `use Docuconf` declaration (SPEC §4.4,
+  §4.7); see [Config-file overlays](#config-file-overlays). Contract-first
+  mode reads both.
 - Markdown docs generation and `deprecated.replaced_by` fallback reads.
 
 ## Development

@@ -20,14 +20,27 @@ defmodule Docuconf.Contract do
   as `use Docuconf`. Values are keyed by variable name (`"PORT"`) and file
   input name (`"serving-tls"`); absent optional inputs are `nil`.
 
-  Every list encoding (`csv`, `json`, `indexed`) and duration encoding
-  (`go`, `iso8601`, `seconds`, `timespan`) is parsed. Durations are integers
-  in `:duration_unit`: milliseconds by default, as in the DSL.
+  Every list and key set encoding (`csv`, `json`, `indexed`) and duration
+  encoding (`go`, `iso8601`, `seconds`, `timespan`) is parsed, by the exact
+  rules of SPEC §5. Durations are integers in `:duration_unit`:
+  milliseconds by default, as in the DSL. A `keySet` is a
+  `Docuconf.KeySet`.
 
-  Not supported: `reload: "watch"` (contract-first mode starts no watcher,
-  so it rejects the promise rather than break it), `overlays` and
-  `profiles`. A `yaml` or `toml` config file needs a decoder in
-  `:decoders`.
+  File inputs are read under `DOCUCONF_FILE_ROOT` (or `:file_root`): `config`
+  files in `json`, `yaml` and `toml` (with the built-in `Docuconf.YAML` and
+  `Docuconf.TOML` readers, or a decoder of your own in `:decoders`), `tls`
+  key pairs, `caBundle`s, PKCS#12 `keystore`s, `text` and `binary` files.
+
+  Profiles (SPEC §4.4) and config-file overlays (SPEC §4.7) are layered as a
+  host that reads config files would: a variable's default, then the
+  selected profile's default, then an overlay (read from its `path` under
+  the file root; a missing one is not an error), then the environment.
+  Elixir's own `config/*.exs` files are compiled into the release, so the
+  `use Docuconf` DSL has neither.
+
+  Not supported: `reload: "watch"`, on a file input or an overlay
+  (contract-first mode starts no watcher, so it rejects the promise rather
+  than break it).
   """
 
   alias Docuconf.{Declaration, DeclarationError, Loader, ValidationError}
@@ -55,6 +68,10 @@ defmodule Docuconf.Contract do
     "itemMax" => :item_max,
     "itemMinLength" => :item_min_length,
     "itemMaxLength" => :item_max_length,
+    "minKeys" => :min_keys,
+    "maxKeys" => :max_keys,
+    "keyMinLength" => :key_min_length,
+    "keyMaxLength" => :key_max_length,
     "encoding" => :encoding,
     "schema" => :schema
   }
@@ -90,14 +107,16 @@ defmodule Docuconf.Contract do
     "duration" => :duration,
     "url" => :url,
     "enum" => :enum,
-    "json" => :json
+    "json" => :json,
+    "keySet" => :key_set
   }
 
   @doc """
   Turns a contract (a JSON string or a decoded map) into a checked
   declaration. Options: `:duration_unit` (default `:millisecond`; see the
   `unit` option of `Docuconf.env/3`) and `:decoders`, a map from config
-  file format (`"yaml"`, `"toml"`) to a decoder function.
+  file or overlay format (`"yaml"`, `"toml"`, `"json"`) to a decoder
+  function returning `{:ok, data}`, in place of the built-in reader.
   """
   @spec parse(String.t() | map(), keyword()) :: {:ok, Declaration.t()} | {:error, [String.t()]}
   def parse(contract, opts \\ [])
@@ -119,9 +138,7 @@ defmodule Docuconf.Contract do
         {c["apiVersion"] != "docuconf.dev/v1alpha1", "apiVersion must be docuconf.dev/v1alpha1"},
         {c["kind"] != "ConfigContract", "kind must be ConfigContract"},
         {not is_map(vars), "vars must be an object"},
-        {not is_map(files), "files must be an object"},
-        {Map.has_key?(c, "overlays"), "overlays are not supported in contract-first mode"},
-        {Map.has_key?(c, "profiles"), "profiles are not supported in contract-first mode"}
+        {not is_map(files), "files must be an object"}
       ]
       |> Enum.flat_map(fn {bad, msg} -> if bad, do: [msg], else: [] end)
 
@@ -144,9 +161,19 @@ defmodule Docuconf.Contract do
              var_decls,
              file_decls
            ) do
-        {:ok, decl} when translated == [] -> {:ok, decl}
-        {:ok, _} -> {:error, translated}
-        {:error, ps} -> {:error, translated ++ ps}
+        {:ok, decl} ->
+          {profiles, p1} = Docuconf.Layers.parse_profiles(c["profiles"], decl.vars)
+
+          {overlays, p2} =
+            Docuconf.Layers.parse_overlays(c["overlays"], decl.files, opts[:decoders])
+
+          case translated ++ p1 ++ p2 do
+            [] -> {:ok, %{decl | profiles: profiles, overlays: overlays}}
+            ps -> {:error, ps}
+          end
+
+        {:error, ps} ->
+          {:error, translated ++ ps}
       end
     end
   end
@@ -232,14 +259,24 @@ defmodule Docuconf.Contract do
 
   defp file_decl({name, _}, _opts), do: {:error, ["file #{name}: must be an object"]}
 
-  defp decoder(opts, "config", format, decoders) when format in ["yaml", "toml"] do
-    case Map.get(decoders, format) do
-      nil -> opts
-      fun -> Keyword.put(opts, :decoder, fun)
+  defp decoder(opts, "config", format, decoders) when format in ["yaml", "toml"],
+    do: Keyword.put(opts, :decoder, decoder_for(format, decoders))
+
+  defp decoder(opts, _type, _format, _decoders), do: opts
+
+  @doc false
+  # The decoder for a structured format: the caller's from `:decoders`, else
+  # the built-in reader (Docuconf.YAML, Docuconf.TOML, Elixir's JSON).
+  def decoder_for(format, decoders) do
+    case Map.get(decoders || %{}, format) do
+      nil -> builtin_decoder(format)
+      fun -> fun
     end
   end
 
-  defp decoder(opts, _type, _format, _decoders), do: opts
+  defp builtin_decoder("yaml"), do: &Docuconf.YAML.decode/1
+  defp builtin_decoder("toml"), do: &Docuconf.TOML.decode/1
+  defp builtin_decoder("json"), do: &JSON.decode/1
 
   defp translate(label, map, keys, ignored) do
     {known, unknown} =

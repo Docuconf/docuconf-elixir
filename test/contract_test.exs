@@ -141,7 +141,11 @@ defmodule Docuconf.ContractTest do
     assert text =~ "(TAGS): item_min and item_max apply only to {:list, :integer}"
 
     assert {:error, %DeclarationError{}} = load(%{}, "{not json")
-    assert {:error, %DeclarationError{}} = load(%{}, Map.put(@contract, "overlays", %{}))
+    overlay = %{"p" => %{"format" => "xml", "path" => "/app/p.xml", "keySeparator" => ":"}}
+
+    assert {:error, %DeclarationError{problems: ["overlay p: format must be json, yaml or toml"]}} =
+             load(%{}, Map.put(@contract, "overlays", overlay))
+
     assert_raise DeclarationError, fn -> Contract.load!(Map.put(@contract, "kind", "X")) end
   end
 

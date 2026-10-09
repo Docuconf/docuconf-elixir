@@ -128,45 +128,43 @@ defmodule Docuconf.Duration do
   @spec parse(String.t(), String.t()) :: {:ok, nanoseconds()} | :error
   def parse(s, "go"), do: parse(s)
 
-  def parse(s, "iso8601") when is_binary(s) do
-    case Regex.run(
-           ~r/^P(?:([0-9]+)D)?(?:T(?:([0-9]+)H)?(?:([0-9]+)M)?(?:([0-9]+)(?:\.([0-9]+))?S)?)?\z/,
-           s
-         ) do
-      [_ | groups] ->
-        [d, h, m, sec, frac] = groups ++ List.duplicate("", 5 - length(groups))
-        time_part = String.split(s, "T", parts: 2)
+  # SPEC §5: P[nD][T[nH][nM][nS]], where n is digits with an optional
+  # fraction after "." or "," (PT1,5S); upper case, unsigned, at least one
+  # component, and at least one after a T.
+  @iso_num "([0-9]+(?:[.,][0-9]+)?)"
+  @iso8601 Regex.compile!(
+             "^P(?:#{@iso_num}D)?(?:T(?:#{@iso_num}H)?(?:#{@iso_num}M)?(?:#{@iso_num}S)?)?\\z"
+           )
 
-        cond do
-          # "P" alone, and a "T" with nothing after it, are not durations.
-          d == "" and h == "" and m == "" and sec == "" -> :error
-          match?([_, ""], time_part) -> :error
-          true -> sum([{d, 86_400}, {h, 3_600}, {m, 60}, {sec, 1}], frac)
+  def parse(s, "iso8601") when is_binary(s) do
+    case Regex.run(@iso8601, s) do
+      [_ | groups] when s != "P" ->
+        if String.ends_with?(s, "T") do
+          :error
+        else
+          [d, h, m, sec] = groups ++ List.duplicate("", 4 - length(groups))
+          sum([{d, 86_400}, {h, 3_600}, {m, 60}, {sec, 1}])
         end
 
-      nil ->
+      _ ->
         :error
     end
   end
 
   def parse(s, "seconds") when is_binary(s) do
-    case Regex.run(~r/^([0-9]+)(?:\.([0-9]+))?\z/, s) do
-      [_, sec] -> sum([{sec, 1}], "")
-      [_, sec, frac] -> sum([{sec, 1}], frac)
-      nil -> :error
-    end
+    if Regex.match?(~r/^[0-9]+(?:\.[0-9]+)?\z/, s), do: sum([{s, 1}]), else: :error
   end
 
+  # SPEC §5: [d.]hh:mm:ss[.f], hh one or two digits below 24, mm and ss two
+  # digits below 60, f one to seven digits. Unsigned.
   def parse(s, "timespan") when is_binary(s) do
-    case Regex.run(
-           ~r/^(?:([0-9]+)\.)?([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(?:\.([0-9]+))?\z/,
-           s
-         ) do
+    case Regex.run(~r/^(?:([0-9]+)\.)?([0-9]{1,2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,7}))?\z/, s) do
       [_ | groups] ->
         [d, h, m, sec, frac] = groups ++ List.duplicate("", 5 - length(groups))
+        sec = if frac == "", do: sec, else: sec <> "." <> frac
 
-        if to_i(h) < 24 and to_i(m) < 60 and to_i(sec) < 60,
-          do: sum([{d, 86_400}, {h, 3_600}, {m, 60}, {sec, 1}], frac),
+        if to_i(h) < 24 and to_i(m) < 60 and to_i(sec |> String.split(".") |> hd()) < 60,
+          do: sum([{d, 86_400}, {h, 3_600}, {m, 60}, {sec, 1}]),
           else: :error
 
       nil ->
@@ -179,12 +177,24 @@ defmodule Docuconf.Duration do
   defp to_i(""), do: 0
   defp to_i(s), do: String.to_integer(s)
 
-  # Whole units (in seconds) plus a fraction of a second, in nanoseconds.
-  defp sum(parts, frac) do
-    secs = Enum.reduce(parts, 0, fn {digits, per}, acc -> acc + to_i(digits) * per end)
-    frac = frac |> String.slice(0, 9) |> String.pad_trailing(9, "0")
-    ns = secs * 1_000_000_000 + to_i(frac)
-    if ns > @max_ns, do: :error, else: {:ok, ns}
+  # The exact sum of decimals ("1.5", "1,5") times their unit in seconds, in
+  # nanoseconds, truncated as Go truncates. More than 2^63-1 ns is an error.
+  defp sum(parts) do
+    terms =
+      for {decimal, per} <- parts, decimal != "" do
+        {int, frac} =
+          case String.split(decimal, [".", ","], parts: 2) do
+            [i, f] -> {i, f}
+            [i] -> {i, ""}
+          end
+
+        {to_i(int <> frac) * per * 1_000_000_000, Integer.pow(10, byte_size(frac))}
+      end
+
+    scale = terms |> Enum.map(&elem(&1, 1)) |> Enum.max(fn -> 1 end)
+    total = div(Enum.reduce(terms, 0, fn {n, d}, acc -> acc + n * div(scale, d) end), scale)
+
+    if total > @max_ns, do: :error, else: {:ok, total}
   end
 
   @doc """

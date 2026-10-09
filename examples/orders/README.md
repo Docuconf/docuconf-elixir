@@ -23,7 +23,7 @@ and builds against the SDK in this repository (`{:docuconf, path: "../.."}`).
 | `ALLOWED_ORIGINS` | list of strings (comma-separated) | at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration (`30s`, `1m30s`) | 1s–5m, default `30s` |
 | `WORKER_COUNT` | int | 1–64, default 4 |
-| `WEBHOOK_KEYS` | list of strings (comma-separated) | secret, optional; 1–2 keys of 32–256 characters each |
+| `WEBHOOK_KEYS` | key set (comma-separated) | secret, optional; 1–2 keys of 32–256 characters each |
 
 ## Run it
 
@@ -64,15 +64,20 @@ environment, then this failure, and the webhook key set below.
 
 ## Rotate a key
 
-`WEBHOOK_KEYS` is a key set: `POST /webhooks/payments` accepts a body whose
-`X-Signature` header is the hex HMAC-SHA256 of the body under any key in the
-list. A variable is read once, at start, so a new key reaches the service
-only when the pods restart; with two keys valid at once, no webhook is turned
-away while that happens:
+`WEBHOOK_KEYS` is a key set (`:key_set`, loaded as a `Docuconf.KeySet`):
+`POST /webhooks/payments` accepts a body whose `X-Signature` header is the
+hex HMAC-SHA256 of the body under any key in the set, checked by
+`Docuconf.KeySet.verify?/2`, which tries every key. A variable is read
+once, at start, so a new key reaches the service only when the pods
+restart; with two keys valid at once, no webhook is turned away while that
+happens:
 
-1. Add the new key as the second item (`old,new` in the Secret), and roll out.
+1. Add the new key to the set (`old,new` in the Secret), and roll out.
 2. Switch the sender to the new key.
 3. Remove the old key (`new`), and roll out.
+
+[`CONFIG.md`](CONFIG.md) prints the same steps: `docuconf docs` writes
+them for every `keySet`, so the declaration's `@doc` does not repeat them.
 
 In the platform's values, the key set is a reference to one Secret key that
 holds `old,new` while rotating:
@@ -90,7 +95,7 @@ the sender, without printing a key:
 $ DATABASE_URL=postgres://orders:orders@localhost:5432/orders \
     WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, mix run --no-halt
 docuconf: 1 configuration problem:
-  - WEBHOOK_KEYS [out_of_range]: item 2 is 0 characters, shorter than item_min_length 32
+  - WEBHOOK_KEYS [out_of_range]: key 2 is empty (a stray separator?)
 ```
 
 [docuconf-go's SPEC section 6.1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md#61-rotation)
