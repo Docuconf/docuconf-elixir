@@ -95,7 +95,7 @@ the sender, without printing a key:
 $ DATABASE_URL=postgres://orders:orders@localhost:5432/orders \
     WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, mix run --no-halt
 docuconf: 1 configuration problem:
-  - WEBHOOK_KEYS [out_of_range]: key 2 is empty (a stray separator?)
+  - WEBHOOK_KEYS [out_of_range]: key 2 is empty
 ```
 
 [docuconf-go's SPEC section 6.1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md#61-rotation)

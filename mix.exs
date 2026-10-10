@@ -24,8 +24,12 @@ defmodule Docuconf.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger, :crypto, :public_key]]
+    [extra_applications: [:logger, :crypto, :public_key] ++ test_applications(Mix.env())]
   end
+
+  # The watcher tests serve TLS with :ssl, as the README's reload pattern does.
+  defp test_applications(:test), do: [:ssl]
+  defp test_applications(_), do: []
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]

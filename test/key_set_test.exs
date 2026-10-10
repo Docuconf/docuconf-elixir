@@ -86,6 +86,76 @@ defmodule Docuconf.KeySetTest do
     assert Exception.message(e) =~ "key 2 is 9 characters, shorter than key_min_length 32"
   end
 
+  defmodule ThreeKeys do
+    use Docuconf, name: "three-keys"
+
+    @doc "Verification keys"
+    secret :keys, :key_set, max_keys: 3
+
+    @doc "Secret list"
+    secret :tokens, {:list, :string}, item_min_length: 1, required: false
+
+    @doc "Plain list"
+    env :regions, {:list, :string}, item_min_length: 1, required: false
+
+    @doc "Ports"
+    env :ports, {:list, :int}, required: false
+  end
+
+  @three_contract %{
+    "apiVersion" => "docuconf.dev/v1alpha1",
+    "kind" => "ConfigContract",
+    "metadata" => %{"name" => "svc"},
+    "vars" => %{
+      "KEYS" => %{
+        "type" => "keySet",
+        "description" => "Verification keys",
+        "secret" => true,
+        "maxKeys" => 3
+      },
+      "TOKENS" => %{
+        "type" => "list",
+        "items" => "string",
+        "description" => "Secret list",
+        "secret" => true,
+        "itemMinLength" => 1
+      },
+      "REGIONS" => %{
+        "type" => "list",
+        "items" => "string",
+        "description" => "Plain list",
+        "itemMinLength" => 1
+      }
+    }
+  }
+
+  defp messages({:error, %ValidationError{violations: vs}}),
+    do: Enum.map(vs, &{&1.input, &1.code, &1.message})
+
+  # SPEC §4.3: exactly "key N is empty", N 1-based as received, in both
+  # modes; never a key.
+  test "an empty key is \"key N is empty\", by its 1-based position" do
+    for {raw, n} <- [{"old,", 2}, {",new", 1}, {"a,,b", 2}] do
+      want = [{"KEYS", :out_of_range, "key #{n} is empty"}]
+      assert messages(ThreeKeys.load(env: %{"KEYS" => raw}, warn: false)) == want
+
+      assert messages(Docuconf.Contract.load(@three_contract, env: %{"KEYS" => raw}, warn: false)) ==
+               want
+    end
+  end
+
+  test "an empty list item is \"item N is empty\", secret or not" do
+    for {raw, n} <- [{"old,", 2}, {",new", 1}, {"a,,b", 2}], name <- ["TOKENS", "REGIONS"] do
+      want = [{name, :out_of_range, "item #{n} is empty"}]
+      env = %{"KEYS" => "k", name => raw}
+      assert messages(ThreeKeys.load(env: env, warn: false)) == want
+      assert messages(Docuconf.Contract.load(@three_contract, env: env, warn: false)) == want
+    end
+
+    assert messages(ThreeKeys.load(env: %{"KEYS" => "k", "PORTS" => "80,,443"}, warn: false)) ==
+             [{"PORTS", :invalid_type, "item 2 is empty"}]
+  end
+
   test "a key set is redacted when inspected or converted to a string" do
     {:ok, env} = load(%{"WEBHOOK_KEYS" => "#{@old},#{@new}"})
     assert inspect(env.webhook_keys) == "#Docuconf.KeySet<2 keys, redacted>"
