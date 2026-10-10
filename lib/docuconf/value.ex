@@ -163,6 +163,9 @@ defmodule Docuconf.Value do
           do: {:halt, {:error, :out_of_range, "an item is outside the 64-bit integer range"}},
           else: {:cont, {:ok, [n | acc]}}
 
+      {"", i}, {:ok, _acc} ->
+        {:halt, {:error, :invalid_type, "item #{i} is empty"}}
+
       {item, i}, {:ok, acc} ->
         case parse_int(item) do
           {:ok, n} ->
@@ -405,10 +408,11 @@ defmodule Docuconf.Value do
       (i = Enum.find_index(v, &(chars(&1) < lo or (hi != nil and chars(&1) > hi)))) != nil ->
         len = v |> Enum.at(i) |> chars()
 
+        # SPEC §4.3: exactly "key N is empty", N 1-based as received.
         why =
           cond do
             len == 0 ->
-              "is empty (a stray separator?)"
+              "is empty"
 
             len < lo ->
               "is #{len} characters, shorter than #{Var.opt_name(var, "key_min_length", "keyMinLength")} #{lo}"
@@ -450,17 +454,24 @@ defmodule Docuconf.Value do
         :ok
 
       i ->
-        item = Enum.at(items, i)
-        n = chars(item)
-        shown = if var.secret, do: "", else: " (#{inspect(item)})"
-
-        bound =
-          if n < lo,
-            do: "shorter than #{Var.opt_name(var, "item_min_length", "itemMinLength")} #{lo}",
-            else: "longer than #{Var.opt_name(var, "item_max_length", "itemMaxLength")} #{hi}"
-
-        {:error, :out_of_range, "item #{i + 1}#{shown} is #{n} characters, #{bound}"}
+        item_length_error(var, i, Enum.at(items, i), lo, hi)
     end
+  end
+
+  # SPEC §4.3: an empty item is exactly "item N is empty", N 1-based.
+  defp item_length_error(_var, i, "", _lo, _hi),
+    do: {:error, :out_of_range, "item #{i + 1} is empty"}
+
+  defp item_length_error(var, i, item, lo, hi) do
+    n = chars(item)
+    shown = if var.secret, do: "", else: " (#{inspect(item)})"
+
+    bound =
+      if n < lo,
+        do: "shorter than #{Var.opt_name(var, "item_min_length", "itemMinLength")} #{lo}",
+        else: "longer than #{Var.opt_name(var, "item_max_length", "itemMaxLength")} #{hi}"
+
+    {:error, :out_of_range, "item #{i + 1}#{shown} is #{n} characters, #{bound}"}
   end
 
   defp plural(1), do: ""

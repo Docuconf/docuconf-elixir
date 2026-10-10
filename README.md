@@ -534,21 +534,144 @@ shown as `**redacted**` when inspected.
 
 `reload: :watch` puts a promise in the contract: the app rereads the file
 itself, so the platform does not restart the pod when it changes. Keep it by
-running `Docuconf.Watcher` in your supervision tree:
+running `Docuconf.Watcher` in your supervision tree, before the processes
+that use the files:
 
 ```elixir
-children = [
-  {Docuconf.Watcher,
-   module: MyApp.Files,
-   on_change: fn :pricing, file -> Application.put_env(:my_app, :pricing, file.data) end}
-]
+defmodule MyApp.Files do
+  use Docuconf, name: "orders"
+
+  tls_file :serving_tls,
+    description: "Certificate the API serves HTTPS with",
+    path: "/etc/orders/tls",
+    dns_names: ["orders.internal"],
+    reload: :watch
+
+  ca_bundle_file :partner_ca,
+    description: "CAs that sign the partner API's certificate",
+    path: "/etc/orders/partner-ca/ca.crt",
+    reload: :watch
+end
+
+defmodule MyApp.Application do
+  use Application
+
+  def start(_type, _args) do
+    children = [
+      {Docuconf.Watcher, module: MyApp.Files},
+      MyApp.Endpoint
+    ]
+
+    Supervisor.start_link(children, strategy: :rest_for_one, name: MyApp.Supervisor)
+  end
+end
 ```
 
-It polls (OTP has no portable file-event API), runs the file's boot checks
-again on every change, and calls `on_change` only for valid content. It
-reads the environment the way the module's last `load` did, `.env` and
-`file_root` included. If you do not run it, declare `reload: :restart`,
-which is the default.
+It polls in the background (OTP has no portable file-event API; every 5
+seconds, or `interval:` milliseconds), runs the file's boot checks again on
+every change, and swaps in the new value only if they pass. A change that
+fails them is logged, and the previous value stays current. It reads the
+environment the way the module's last `load` did, `.env` and `file_root`
+included. If you do not run it, declare `reload: :restart`, which is the
+default.
+
+For each watched input, `Docuconf.Watcher` gives you:
+
+- `current(module, field)`: the `Docuconf.LoadedFile` in use now, from an
+  ETS table, so it is cheap to call on every request;
+- `subscribe(module, field)`: the calling process receives
+  `{:docuconf_reloaded, module, field, %Docuconf.LoadedFile{}}` after each
+  accepted reload, until it exits or calls `unsubscribe/2`;
+- `on_change(module, field, fun)`: `fun` is called with the new
+  `Docuconf.LoadedFile` after each accepted reload, in the watcher process.
+  It returns a reference for `unsubscribe(module, ref)`. The watcher's own
+  `on_change: fn field, file -> ... end` option is one more such hook;
+- `status(module, field)` and `status(module)`: the `Docuconf.ReloadStatus`.
+
+Hooks and messages fire from the background poll, without a read, after an
+accepted reload only, never for a rejected change. Several are allowed, and
+run one at a time in the order they were added. A hook that raises, throws
+or exits is logged by input name and error type, never its message; the
+other hooks still run and the reload stands. Hooks belong to the watcher
+process, so if it restarts they must be added again: a `:rest_for_one`
+supervisor, as above, restarts the processes started after it, which then
+subscribe again.
+
+#### Using a watched value
+
+A value copied once at startup, into a TLS listener's options, an HTTP
+client or a pool, never sees a reload, and a renewed certificate is mounted
+but never served until the old one expires. Read `current/2` on each use,
+or rebuild what you made from the value in a hook.
+
+A TLS server configured with `certfile:` and `keyfile:` (Phoenix's `https:`
+options, Bandit, Cowboy, `:ssl.listen/2`) reads those paths through OTP's
+PEM cache. Clearing it in a hook makes the next handshake read the renewed
+files; open connections keep the certificate they started with:
+
+```elixir
+defmodule MyApp.TLSReload do
+  require Logger
+
+  # Call from MyApp.Endpoint's init/2, or a process started after the watcher.
+  def watch do
+    Docuconf.Watcher.on_change(MyApp.Files, :serving_tls, fn tls ->
+      :ssl.clear_pem_cache()
+      Logger.info("serving certificate renewed, valid until #{tls.data.not_after}")
+    end)
+  end
+
+  def https_options do
+    tls = Docuconf.Watcher.current(MyApp.Files, :serving_tls)
+    [certfile: tls.data.certfile, keyfile: tls.data.keyfile]
+  end
+end
+```
+
+An HTTP client reads the CA bundle on each request:
+
+```elixir
+defmodule MyApp.Partner do
+  def get(url) do
+    ca = Docuconf.Watcher.current(MyApp.Files, :partner_ca)
+    ssl = [verify: :verify_peer, cacerts: ca.data]
+    :httpc.request(:get, {String.to_charlist(url), []}, [ssl: ssl], [])
+  end
+end
+```
+
+A client that keeps a pool (Finch, Mint, a Req instance) rebuilds it on
+`{:docuconf_reloaded, MyApp.Files, :partner_ca, ca}` in the process that
+owns the pool, after `subscribe/2` in its `init/1`.
+
+#### Reload status
+
+`Docuconf.Watcher.status(module, field)` returns a `Docuconf.ReloadStatus`:
+`generation` (1 when the watcher starts at boot, plus one per accepted
+reload), `last_reload` (the `DateTime` of the last accepted reload, or
+`nil`) and `last_rejected` (a `Docuconf.RejectedReload` with the `time`,
+the `input` name and the violation `codes` of the last change that failed
+its checks, never the content; cleared by the next accepted reload).
+`status(module)` returns a map of them by field. Both encode with `JSON`,
+for a health check or a metric:
+
+```elixir
+defmodule MyApp.Health do
+  # {"serving_tls":{"generation":2,"last_reload":"2026-10-10T13:44:18.526735Z","last_rejected":null},...}
+  def reloadz, do: JSON.encode!(Docuconf.Watcher.status(MyApp.Files))
+end
+```
+
+#### Keystores
+
+The watcher reads the environment once, when it starts, so a keystore
+reload opens the new keystore with the password read at boot (a running
+process's environment does not change). Rotating a keystore's password
+needs a rollout. A changed keystore that does not open with the boot
+password is rejected as `keystore_unreadable`, and the previous one stays
+current.
+
+#### The watcher must run
 
 The promise is enforced. `load!/1`, when the declaration has a `watch`
 input, checks once the application that owns the module has started that a
@@ -652,8 +775,10 @@ bundles, PKCS#12 keystores, `text` and `binary` files. `profiles` and
 `overlays` are layered as a host that reads config files would: the
 variable's default, then the selected profile's default, then an overlay
 (an optional file at its `path` under the file root, read at each
-variable's `configKey`), then the environment. It rejects `reload: "watch"`,
-since it starts no watcher.
+variable's `configKey`), then the environment. It reads each file once and
+starts no watcher, so a contract that declares `reload: "watch"` on a file
+input or an overlay is rejected at load, naming the input:
+`file motd: reload "watch" is not supported in contract-first mode`.
 
 ### Conformance
 
