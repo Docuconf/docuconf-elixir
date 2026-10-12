@@ -240,7 +240,8 @@ defmodule Docuconf.ContractTest do
     test "reload watch is rejected", %{contract: contract} do
       contract = put_in(contract, ["files", "motd", "reload"], "watch")
       assert {:error, %DeclarationError{problems: [p]}} = load(%{}, contract)
-      assert p =~ "reload \"watch\" is not supported"
+      # SPEC §11.2 item 8: rejected at load, naming the input.
+      assert p == ~s(file motd: reload "watch" is not supported in contract-first mode)
     end
   end
 end

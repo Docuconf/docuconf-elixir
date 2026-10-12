@@ -75,6 +75,11 @@ defmodule Docuconf.BootTest do
       state = %{env: %{"SECRET_KEY_BASE" => @secret_key}, interval: 5}
       status = Docuconf.Watcher.format_status(%{state: state})
       refute inspect(status) =~ "S3CR3T"
+
+      # The parsed variables (keystore passwords) too.
+      state = Map.put(state, :vars, %{"SECRET_KEY_BASE" => @secret_key})
+      status = Docuconf.Watcher.format_status(%{state: state})
+      refute inspect(status) =~ "S3CR3T"
     end
   end
 

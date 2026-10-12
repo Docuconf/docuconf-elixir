@@ -88,7 +88,7 @@ output="$(DATABASE_URL="$secret" WEBHOOK_KEYS="$old_key," mix run --no-halt 2>&1
 echo "$output"
 [ "$status" -eq 1 ] || { echo "FAIL: want exit status 1 for an empty webhook key, got $status" >&2; exit 1; }
 grep -qF "docuconf: 1 configuration problem:" <<<"$output" || { echo "FAIL: no problem summary" >&2; exit 1; }
-grep -qF "WEBHOOK_KEYS [out_of_range]: key 2 is empty" <<<"$output" || { echo "FAIL: no WEBHOOK_KEYS out_of_range for the empty key 2" >&2; exit 1; }
+grep -qxF "  - WEBHOOK_KEYS [out_of_range]: key 2 is empty" <<<"$output" || { echo "FAIL: no WEBHOOK_KEYS out_of_range for the empty key 2" >&2; exit 1; }
 if grep -qF "webhook-key" <<<"$output"; then
   echo "FAIL: the error output contains a webhook key" >&2
   exit 1
