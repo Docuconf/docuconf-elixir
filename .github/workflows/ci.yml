@@ -33,7 +33,7 @@ jobs:
     env:
       MIX_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Pick the docuconf-go ref
         id: dcref
@@ -48,7 +48,7 @@ jobs:
       # The contract meta-schema (spec/cue) and the conformance suite
       # (conformance/cases.json) live in docuconf-go; the tests use both.
       - name: Check out docuconf-go
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: docuconf/docuconf-go
           ref: ${{ steps.dcref.outputs.ref }}
@@ -59,7 +59,7 @@ jobs:
           otp-version: ${{ matrix.otp }}
           elixir-version: ${{ matrix.elixir }}
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: stable
           cache: false
@@ -94,7 +94,7 @@ jobs:
     name: examples/orders
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Pick the docuconf-go ref
         id: dcref
@@ -108,7 +108,7 @@ jobs:
 
       # The contract meta-schema (spec/cue) lives in docuconf-go.
       - name: Check out docuconf-go
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: docuconf/docuconf-go
           ref: ${{ steps.dcref.outputs.ref }}
@@ -119,7 +119,7 @@ jobs:
           otp-version: "27"
           elixir-version: "1.18"
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: stable
           cache: false
