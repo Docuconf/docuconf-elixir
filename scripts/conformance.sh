@@ -9,7 +9,9 @@
 #
 # Needs Elixir/OTP and cue on PATH, and Go to build the docuconf CLI from
 # DOCUCONF_GO_DIR unless DOCUCONF_CLI names one already built from it. Fails
-# if any conformance case is skipped.
+# if any conformance case is skipped. The pending cases
+# (conformance/cases.pending.json, next to cases.json) run too; a pending case
+# with a capability tag this SDK does not support is skipped without failing.
 set -euo pipefail
 
 : "${DOCUCONF_GO_DIR:?set DOCUCONF_GO_DIR to a docuconf-go checkout}"

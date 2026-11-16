@@ -58,8 +58,15 @@ defmodule Docuconf.Loader do
     {layers, layer_violations, layer_warnings} =
       Docuconf.Layers.load(d, env, opts[:file_root])
 
+    # Roles (SPEC §4.9, contract-first mode only): the workload's role is
+    # DOCUCONF_ROLE when it is one of the contract's roles. An input that
+    # only other roles use is optional; with no role, every role-specific
+    # input is, so the role is the one problem reported.
+    role = role(d, env)
+
     {vars, var_violations, warnings} =
       Enum.reduce(d.vars, {%{}, [], layer_warnings}, fn var, {vals, vios, warns} ->
+        var = if in_role?(var, role), do: var, else: %{var | required: false}
         raw = raw_value(env, var)
         below = Map.get(layers, var.name, [])
 
@@ -98,11 +105,11 @@ defmodule Docuconf.Loader do
         end
       end)
 
-    var_violations = layer_violations ++ var_violations
+    var_violations = layer_violations ++ var_violations ++ conditional(d.vars, vars, role)
 
     {files, file_violations} =
       Enum.reduce(d.files, {%{}, []}, fn f, {vals, vios} ->
-        {value, vs} = Files.load(f, env, vars, opts)
+        {value, vs} = Files.load(for_boot(f, vars, role), env, vars, opts)
         {Map.put(vals, f.field, value), vios ++ vs}
       end)
 
@@ -129,6 +136,50 @@ defmodule Docuconf.Loader do
         {:error, violations, warnings}
     end
   end
+
+  defp role(%Declaration{roles: roles}, env) when is_list(roles) do
+    case Map.get(env, "DOCUCONF_ROLE") do
+      r when is_binary(r) -> if r in roles, do: r
+      _ -> nil
+    end
+  end
+
+  defp role(_d, _env), do: nil
+
+  # Whether the workload's role uses an input: every role does when the input
+  # has no roles.
+  defp in_role?(%{roles: nil}, _role), do: true
+  defp in_role?(%{roles: roles}, role), do: role != nil and role in roles
+
+  # Conditional requirements (SPEC §4.2.1, contract-first mode only), on the
+  # condition variables' loaded values: the environment, an overlay, the
+  # selected profile or the default. A condition variable with a violation
+  # has no value, so it makes nothing required. Only a variable that loaded
+  # as absent, with no violation of its own, is reported.
+  defp conditional(vars, values, role) do
+    for %Var{required_if: {_, _}} = var <- vars,
+        Map.fetch(values, var.name) == {:ok, nil},
+        w = required_when(var, values, role) do
+      Violation.new(var.name, :var, :missing_required, "is required when #{w}")
+    end
+  end
+
+  # A file input as this boot requires it: optional outside its roles, and
+  # required while its condition holds.
+  defp for_boot(%Docuconf.FileInput{} = f, values, role) do
+    w = required_when(f, values, role)
+    %{f | required: in_role?(f, role) and (f.required or w != nil), required_when: w}
+  end
+
+  # The condition, as messages write it (the value as JSON:
+  # `LOG_FORMAT is "json"`), when it makes the input required at this boot;
+  # else nil. `===` keeps true apart from 1.
+  defp required_when(%{required_if: {name, value}} = input, values, role) do
+    if in_role?(input, role) and Map.get(values, name) === value,
+      do: "#{name} is #{JSON.encode!(value)}"
+  end
+
+  defp required_when(_input, _values, _role), do: nil
 
   # The raw value of a variable: its env string, or the items of an indexed
   # list (NAME__0, NAME__1, ...). nil is unset. SPEC §5: only a decimal index

@@ -780,6 +780,20 @@ starts no watcher, so a contract that declares `reload: "watch"` on a file
 input or an overlay is rejected at load, naming the input:
 `file motd: reload "watch" is not supported in contract-first mode`.
 
+An input with `requiredIf: {VAR: value}` (SPEC §4.2.1) is required while
+the condition variable's loaded value (the environment, an overlay, the
+selected profile, or its default) is that value: `CA_SUBJECT: is required
+when TLS_ENABLED is true`, with the value written as JSON
+(`LOG_FORMAT is "json"`). A missing file input says so after its
+`file_missing` message. A condition variable with a violation of its own
+makes nothing required. In a contract with `roles` (SPEC §4.9), the
+workload's role is `DOCUCONF_ROLE`, and an input whose `roles` leave it out
+is optional: with no role, or one the contract does not declare, only the
+inputs every role uses are required. A fragment's variables (`includes`,
+SPEC §4.8) are in the contract inline, and read like any other;
+`Docuconf.Contract.parse/2` returns the declaration with its `includes` and
+`roles`.
+
 ### Conformance
 
 `test/conformance_test.exs` runs the shared conformance suite (SPEC §12,
@@ -801,9 +815,16 @@ No capability tags are skipped, and the runner fails if any case is. It
 keeps an allow-list of the tags it supports: `int64` (Elixir integers hold
 every 64-bit value), `json-schema` (`json` values are validated against
 their JSON Schema), `key-set`, `deprecated`, `strict-parsing`, `files`,
-`profiles` and `overlays`. A case with any other tag, including one added
-to the suite after this release, is skipped rather than run (SPEC §12), and
-then the "skips nothing" test fails, so a new tag is noticed.
+`profiles`, `overlays`, `required-if` and `roles`. A case with any other
+tag, including one added to the suite after this release, is skipped
+rather than run (SPEC §12), and then the "skips nothing" test fails, so a
+new tag is noticed.
+
+`cases.pending.json`, next to `cases.json`, holds the cases of features not
+every SDK has yet. The same test file runs them as `pending case ...`: a
+case whose tags this runner supports must pass, and one with a tag it does
+not know is skipped without failing. Without the file the pending run is
+skipped.
 
 `test/conformance_export_test.exs` declares the shared export fixture
 (`conformance/export/fixture.yaml`) in `test/support/fixture_env.ex`,

@@ -34,6 +34,10 @@ defmodule Docuconf.Var do
     :spec,
     :default,
     :line,
+    # Contract-first mode only (SPEC §4.2.1, §4.9): `{variable, value}` and
+    # the roles that use the variable.
+    :required_if,
+    :roles,
     required: false,
     atom_values: false,
     origin: :dsl,
@@ -77,6 +81,12 @@ defmodule Docuconf.FileInput do
     :min_length,
     :max_length,
     :line,
+    # Contract-first mode only (SPEC §4.2.1, §4.9): `{variable, value}`, the
+    # roles that use the input, and the condition that makes it required at
+    # this boot, as messages write it.
+    :required_if,
+    :roles,
+    :required_when,
     required: false,
     secret: false,
     origin: :dsl,
@@ -108,10 +118,23 @@ defmodule Docuconf.Declaration do
           files: [FileInput.t()],
           profiles: Docuconf.Layers.Profiles.t() | nil,
           overlays: [Docuconf.Layers.Overlay.t()],
+          roles: [String.t()] | nil,
+          includes: [String.t()],
           warnings: [{pos_integer() | nil, String.t()}]
         }
-  # profiles and overlays come only from a contract (contract-first mode).
-  defstruct [:name, :app_version, :profiles, vars: [], files: [], overlays: [], warnings: []]
+  # profiles, overlays, roles and includes come only from a contract
+  # (contract-first mode).
+  defstruct [
+    :name,
+    :app_version,
+    :profiles,
+    :roles,
+    vars: [],
+    files: [],
+    overlays: [],
+    includes: [],
+    warnings: []
+  ]
 
   @common_var_opts [
     :description,

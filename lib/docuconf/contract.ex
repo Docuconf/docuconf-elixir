@@ -38,12 +38,24 @@ defmodule Docuconf.Contract do
   Elixir's own `config/*.exs` files are compiled into the release, so the
   `use Docuconf` DSL has neither.
 
+  An input with `requiredIf: {VAR: value}` (SPEC §4.2.1) is required while
+  the condition variable's loaded value (the environment, an overlay, the
+  selected profile or its default) is that value: `CA_SUBJECT: is required
+  when TLS_ENABLED is true`, the value written as JSON. A condition variable
+  with a violation of its own makes nothing required. In a contract with
+  `roles` (SPEC §4.9), the workload's role is `DOCUCONF_ROLE`, and an input
+  whose `roles` leave it out is optional: with no role, or one the contract
+  does not declare, only the inputs every role uses are required. A
+  fragment's variables (`includes`, SPEC §4.8) are in the contract inline
+  and read like any other; `parse/2` returns the declaration with
+  `includes` and `roles`.
+
   Not supported: `reload: "watch"`, on a file input or an overlay
   (contract-first mode starts no watcher, so it rejects the promise rather
   than break it).
   """
 
-  alias Docuconf.{Declaration, DeclarationError, Loader, ValidationError}
+  alias Docuconf.{Declaration, DeclarationError, Loader, ValidationError, Value, Var}
 
   @var_keys %{
     "description" => :description,
@@ -98,6 +110,14 @@ defmodule Docuconf.Contract do
     "minLength" => :min_length,
     "maxLength" => :max_length
   }
+
+  # Fields read apart from the options: requiredIf and roles are read by
+  # extras/2 and checked against the whole contract.
+  @var_ignored ["name", "type", "items", "requiredIf", "roles"]
+  @file_ignored ["name", "type", "requiredIf", "roles"]
+
+  # SPEC §4.9: the variable that names the workload's role.
+  @role_var "DOCUCONF_ROLE"
 
   @types %{
     "string" => :string,
@@ -154,7 +174,13 @@ defmodule Docuconf.Contract do
       name = get_in(c, ["metadata", "name"])
       version = get_in(c, ["metadata", "appVersion"])
 
-      translated = var_problems ++ file_problems
+      # requiredIf (SPEC §4.2.1), roles (SPEC §4.9) and includes (SPEC §4.8).
+      {includes, p_includes} = includes(c["includes"])
+      {roles, p_roles} = roles(c["roles"], "roles")
+      {var_extras, p_vars} = extras(vars, "env")
+      {file_extras, p_files} = extras(files, "file")
+
+      translated = var_problems ++ file_problems ++ p_includes ++ p_roles ++ p_vars ++ p_files
 
       case Declaration.build(
              [name: name, app_version: version, origin: :contract],
@@ -167,7 +193,17 @@ defmodule Docuconf.Contract do
           {overlays, p2} =
             Docuconf.Layers.parse_overlays(c["overlays"], decl.files, opts[:decoders])
 
-          case translated ++ p1 ++ p2 do
+          decl = %{
+            decl
+            | vars: with_extras(decl.vars, var_extras),
+              files: with_extras(decl.files, file_extras),
+              roles: roles,
+              includes: includes
+          }
+
+          p3 = check_roles(decl, vars) ++ check_conditions(decl)
+
+          case translated ++ p1 ++ p2 ++ p3 do
             [] -> {:ok, %{decl | profiles: profiles, overlays: overlays}}
             ps -> {:error, ps}
           end
@@ -191,7 +227,7 @@ defmodule Docuconf.Contract do
   # field is the env name itself, so values come back keyed by it.
   defp var_decl({name, %{} = v}, opts) do
     with {:ok, type} <- var_type(name, v),
-         {:ok, var_opts} <- translate("env #{name}", v, @var_keys, ["name", "type", "items"]) do
+         {:ok, var_opts} <- translate("env #{name}", v, @var_keys, @var_ignored) do
       var_opts =
         var_opts
         |> Keyword.put(:name, name)
@@ -234,7 +270,7 @@ defmodule Docuconf.Contract do
              else: {:error, :type}
            ),
          :ok <- if(f["reload"] == "watch", do: {:error, :watch}, else: :ok),
-         {:ok, file_opts} <- translate("file #{name}", f, @file_keys, ["name", "type"]) do
+         {:ok, file_opts} <- translate("file #{name}", f, @file_keys, @file_ignored) do
       file_opts =
         file_opts
         |> Keyword.put(:name, name)
@@ -288,6 +324,198 @@ defmodule Docuconf.Contract do
       {:ok, Enum.map(known, fn {k, v} -> {Map.fetch!(keys, k), v} end)}
     else
       {:error, ["#{label}: unknown fields #{unknown |> Enum.map(&elem(&1, 0)) |> inspect()}"]}
+    end
+  end
+
+  # ---- requiredIf, roles and includes ------------------------------------------
+
+  # The well-known fragments the contract includes (SPEC §4.8), name@major.
+  # Their variables are in vars, inline, and read like any other.
+  defp includes(nil), do: {[], []}
+
+  defp includes(list) when is_list(list) do
+    if Enum.all?(list, &is_binary/1) do
+      problems =
+        Enum.flat_map(Enum.with_index(list), fn {f, i} ->
+          cond do
+            not Regex.match?(~r/^[a-z][a-z0-9-]*@[1-9][0-9]*\z/, f) ->
+              ["includes: #{inspect(f)} is not a fragment name, name@major"]
+
+            f in Enum.take(list, i) ->
+              ["includes: #{f} is listed twice"]
+
+            true ->
+              []
+          end
+        end)
+
+      {Enum.uniq(list), problems}
+    else
+      includes(:not_a_list)
+    end
+  end
+
+  defp includes(_other), do: {[], ["includes must be a list of fragment names, such as otel@1"]}
+
+  # A list of roles (SPEC §4.9): DNS labels, at least one, none listed twice.
+  defp roles(nil, _what), do: {nil, []}
+
+  defp roles([_ | _] = list, what) do
+    if Enum.all?(list, &is_binary/1) do
+      problems =
+        Enum.flat_map(Enum.with_index(list), fn {r, i} ->
+          cond do
+            not Regex.match?(~r/^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\z/, r) ->
+              ["#{what}: role #{inspect(r)} must be a DNS label"]
+
+            r in Enum.take(list, i) ->
+              ["#{what}: role #{r} is listed twice"]
+
+            true ->
+              []
+          end
+        end)
+
+      {list, problems}
+    else
+      roles(:not_a_list, what)
+    end
+  end
+
+  defp roles(_other, what), do: {nil, ["#{what} must be a list of at least one role name"]}
+
+  # Each input's requiredIf and roles, by name, as the fields of its
+  # Docuconf.Var or Docuconf.FileInput.
+  defp extras(inputs, kind) when is_map(inputs) do
+    inputs
+    |> Enum.sort()
+    |> Enum.filter(fn {_name, input} -> is_map(input) end)
+    |> Enum.map_reduce([], fn {name, input}, acc ->
+      label = "#{kind} #{name}"
+      {required_if, p1} = required_if(label, input)
+      {roles, p2} = roles(input["roles"], "#{label}: roles")
+      {{name, %{required_if: required_if, roles: roles}}, acc ++ p1 ++ p2}
+    end)
+    |> then(fn {pairs, problems} -> {Map.new(pairs), problems} end)
+  end
+
+  defp extras(_inputs, _kind), do: {%{}, []}
+
+  defp with_extras(inputs, extras),
+    do: Enum.map(inputs, &Map.merge(&1, Map.get(extras, &1.name, %{})))
+
+  # requiredIf: {VAR: value} (SPEC §4.2.1): one variable and a string, an
+  # integer or a boolean, as {name, value}. The input it makes required is
+  # otherwise optional: not required, with no default, and not deprecated.
+  defp required_if(_label, %{"requiredIf" => nil}), do: {nil, []}
+
+  defp required_if(label, %{"requiredIf" => %{} = condition} = input)
+       when map_size(condition) == 1 do
+    [{name, value}] = Map.to_list(condition)
+    plain? = is_binary(value) or is_integer(value) or is_boolean(value)
+
+    if is_binary(name) and plain? and Regex.match?(~r/^[A-Z][A-Z0-9_]*\z/, name) do
+      problems =
+        [
+          {input["required"] == true or input["default"] != nil,
+           "an input with requiredIf is neither required nor has a default"},
+          {input["deprecated"] != nil, "a conditionally required input cannot be deprecated"}
+        ]
+        |> Enum.flat_map(fn {bad, msg} -> if bad, do: ["#{label}: #{msg}"], else: [] end)
+
+      {{name, value}, problems}
+    else
+      {nil, ["#{label}: requiredIf must name one variable and a string, int or bool value"]}
+    end
+  end
+
+  defp required_if(label, %{"requiredIf" => _}),
+    do: {nil, ["#{label}: requiredIf must name one variable and its value: {VAR: value}"]}
+
+  defp required_if(_label, _input), do: {nil, []}
+
+  # The inputs' roles against the contract's (SPEC §4.9), and DOCUCONF_ROLE:
+  # a required enum whose values are exactly the roles, used by every role.
+  defp check_roles(%Declaration{roles: roles} = decl, vars) do
+    inputs =
+      Enum.map(decl.vars, &{"env #{&1.name}", &1.roles}) ++
+        Enum.map(decl.files, &{"file #{&1.name}", &1.roles})
+
+    input_problems =
+      Enum.flat_map(inputs, fn
+        {_label, nil} ->
+          []
+
+        {label, _used} when roles == nil ->
+          ["#{label}: has roles, but the contract declares none"]
+
+        {label, used} ->
+          for r <- used, r not in roles do
+            "#{label}: role #{r} is not one of the contract's roles, #{Enum.join(roles, ", ")}"
+          end
+      end)
+
+    role_var_problems =
+      if roles == nil or role_var?(vars[@role_var], roles) do
+        []
+      else
+        [
+          "env #{@role_var}: a contract with roles declares it as a required enum whose " <>
+            "values are the roles, #{Enum.join(roles, ", ")}, used by every role"
+        ]
+      end
+
+    input_problems ++ role_var_problems
+  end
+
+  defp role_var?(%{"type" => "enum", "required" => true, "values" => values} = var, roles),
+    do: values == roles and var["roles"] == nil
+
+  defp role_var?(_var, _roles), do: false
+
+  # Each input's requiredIf against the variables (SPEC §4.2.1): it names
+  # another declared variable, a plain string, int, bool or enum one that is
+  # not secret, and a value that variable can hold. A bool is not an int.
+  defp check_conditions(%Declaration{} = decl) do
+    inputs =
+      Enum.map(decl.vars, &{"env #{&1.name}", &1.name, &1.required_if}) ++
+        Enum.map(decl.files, &{"file #{&1.name}", &1.name, &1.required_if})
+
+    for {label, input, {name, value}} <- inputs,
+        problem = condition_problem(input, name, value, decl.vars) do
+      "#{label}: #{problem}"
+    end
+  end
+
+  defp condition_problem(input, name, value, vars) do
+    case Enum.find(vars, &(&1.name == name)) do
+      %Var{} = var when name != input -> condition_value_problem(name, value, var)
+      _ -> "requiredIf must name another declared variable, not #{inspect(name)}"
+    end
+  end
+
+  defp condition_value_problem(name, value, %Var{} = var) do
+    same_type? =
+      case var.type do
+        "int" -> is_integer(value)
+        "bool" -> is_boolean(value)
+        _ -> is_binary(value)
+      end
+
+    shown = "#{name} is #{JSON.encode!(value)}"
+
+    cond do
+      var.secret or var.type not in ["string", "int", "bool", "enum"] ->
+        "requiredIf names #{name}, which is not a plain string, int, bool or enum variable"
+
+      not same_type? ->
+        "requiredIf: #{shown} is not a value #{name} can have"
+
+      true ->
+        case Value.check(var, value) do
+          {:ok, _} -> nil
+          {:error, _code, msg} -> "requiredIf: #{shown} is not a value #{name} can have: #{msg}"
+        end
     end
   end
 
