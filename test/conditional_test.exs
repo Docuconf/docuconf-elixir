@@ -4,7 +4,7 @@ defmodule Docuconf.ConditionalTest do
   # narrowing and the contracts the reader refuses.
   use ExUnit.Case, async: true
 
-  alias Docuconf.{Contract, DeclarationError, ValidationError}
+  alias Docuconf.{Contract, ValidationError}
 
   @moduletag :tmp_dir
 
@@ -105,7 +105,7 @@ defmodule Docuconf.ConditionalTest do
     do: vs |> Enum.map(&{&1.input, &1.code, &1.message}) |> Enum.sort()
 
   defp problems(contract) do
-    assert {:error, %DeclarationError{problems: ps}} = Contract.parse(contract)
+    assert {:error, ps} = Contract.parse(contract)
     Enum.join(ps, "\n")
   end
 
