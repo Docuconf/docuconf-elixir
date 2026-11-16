@@ -22,7 +22,10 @@ adds what it lacks:
 
 There are no runtime dependencies. JSON comes from Elixir 1.18's `JSON`
 module and certificate handling from OTP's `:public_key`.
-[`examples/orders`](examples/orders) is a small HTTP service built with it.
+Example apps: [`examples/orders`](examples/orders), a small HTTP service built
+with it, and [`examples/shop`](examples/shop), one program in two roles that
+loads a hand-written contract in [contract-first mode](#contract-first-mode),
+with roles, `requiredIf` and the `otel@1` fragment.
 
 The quickstart below goes install, declare, run, see an error, test, export,
 deploy. [Phoenix](#phoenix) has a drop-in `runtime.exs`, and the

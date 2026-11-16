@@ -168,3 +168,82 @@ jobs:
 
       - name: Smoke test
         run: examples/orders/smoke.sh
+
+  shop:
+    name: examples/shop
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the docuconf-go ref
+        id: dcref
+        env:
+          EVENT: ${{ github.event_name }}
+          OVERRIDE: ${{ inputs.docuconf_go_ref }}
+        run: |
+          if [ "$EVENT" = schedule ]; then echo "ref=main" >> "$GITHUB_OUTPUT"
+          elif [ -n "$OVERRIDE" ]; then echo "ref=$OVERRIDE" >> "$GITHUB_OUTPUT"
+          else echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"; fi
+
+      # The contract meta-schema (spec/cue) lives in docuconf-go.
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
+          path: docuconf-go
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install cue
+        run: go install cuelang.org/go/cmd/cue@v0.17.1
+
+      - name: Build
+        working-directory: examples/shop
+        run: |
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+
+      # The README's test matrix, cases 1 to 11.
+      - name: Test
+        working-directory: examples/shop
+        run: mix test
+
+      # contract.json is the source; contract.cue is written from it.
+      - name: contract.cue is up to date
+        working-directory: examples/shop
+        run: |
+          cp contract.cue "$RUNNER_TEMP/contract.cue"
+          ./contract-cue.sh
+          ../../scripts/check-generated.sh --files "$RUNNER_TEMP/contract.cue" contract.cue
+
+      - name: Contract passes the meta-schema
+        run: |
+          dir="$(mktemp -d)"
+          cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract "$dir/"
+          mkdir "$dir/shop"
+          cp examples/shop/contract.cue "$dir/shop/"
+          cp examples/shop/contract.json "$dir/"
+          cd "$dir" && cue vet -c ./shop && cue vet -c ./shop contract.json
+
+      # CONFIG.md, CONFIG.agents.md and docs.json are generated from
+      # contract.cue by docuconf docs, built from the docuconf-go checkout.
+      # These are the README's commands.
+      - name: Generated docs are up to date
+        run: |
+          (cd docuconf-go/cmd/docuconf && go build -o "$RUNNER_TEMP/docuconf" .)
+          cd examples/shop
+          "$RUNNER_TEMP/docuconf" docs contract.cue --check CONFIG.md
+          "$RUNNER_TEMP/docuconf" docs contract.cue --format agents --check CONFIG.agents.md
+          "$RUNNER_TEMP/docuconf" docs contract.cue --format model --check docs.json
+
+      - name: Smoke test
+        run: examples/shop/smoke.sh
