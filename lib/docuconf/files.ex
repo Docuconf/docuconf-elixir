@@ -45,7 +45,8 @@ defmodule Docuconf.Files do
   defp check(%FileInput{type: "tls"} = f, dir, _vars, report, opts) do
     case File.stat(dir) do
       {:error, :enoent} ->
-        if f.required, do: report.(:file_missing, "#{dir} not found#{root_hint(opts)}")
+        if f.required,
+          do: report.(:file_missing, "#{dir} not found#{root_hint(opts)}#{required_when(f)}")
         nil
 
       {:error, reason} ->
@@ -91,10 +92,15 @@ defmodule Docuconf.Files do
       else: ""
   end
 
+  # A file input a requiredIf condition makes required (SPEC §4.2.1) says so.
+  defp required_when(%FileInput{required_when: nil}), do: ""
+  defp required_when(%FileInput{required_when: w}), do: ", and is required when #{w}"
+
   defp stat(f, path, report, opts) do
     case File.stat(path) do
       {:error, :enoent} ->
-        if f.required, do: report.(:file_missing, "#{path} not found#{root_hint(opts)}")
+        if f.required,
+          do: report.(:file_missing, "#{path} not found#{root_hint(opts)}#{required_when(f)}")
         :absent
 
       {:error, reason} ->

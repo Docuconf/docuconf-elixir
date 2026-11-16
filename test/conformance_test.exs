@@ -14,9 +14,10 @@ defmodule Docuconf.ConformanceTest do
   # runner has never heard of, is skipped, never run (SPEC §12). Elixir
   # integers are exact at any size (int64), Docuconf.JSONSchema validates
   # json values (json-schema), and contract-first mode has the keySet type,
-  # deprecated inputs, strict parsing, file inputs, profiles and overlays.
-  # "the suite skips nothing" below fails on any skip.
-  @supported ~w(int64 json-schema key-set deprecated strict-parsing files profiles overlays)
+  # deprecated inputs, strict parsing, file inputs, profiles, overlays,
+  # requiredIf and roles. "the suite skips nothing" below fails on any skip.
+  @supported ~w(int64 json-schema key-set deprecated strict-parsing files profiles overlays
+                required-if roles)
 
   @path System.get_env("DOCUCONF_CONFORMANCE") ||
           Path.expand("../docuconf-go/conformance/cases.json", Path.dirname(__DIR__))
@@ -68,6 +69,48 @@ defmodule Docuconf.ConformanceTest do
       @tag skip: "#{@path} not found; set DOCUCONF_CONFORMANCE"
       test "conformance suite", do: :ok
     end
+  end
+
+  # cases.pending.json, next to cases.json, holds the cases of features not
+  # every SDK has yet. A case whose tags this runner supports must pass; one
+  # with a tag it does not know is skipped, and that is not a failure. With
+  # no such file, the pending run is skipped.
+  @pending_path Path.join(Path.dirname(@path), "cases.pending.json")
+
+  if File.exists?(@pending_path) do
+    @external_resource @pending_path
+    @pending_suite @pending_path |> File.read!() |> JSON.decode!()
+    @pending Map.fetch!(@pending_suite, "cases")
+    @pending_skipped for c <- @pending, c["requires"] -- @supported != [], do: c
+
+    test "the pending cases are version 1" do
+      assert @pending_suite["version"] == 1
+
+      # Not "conformance: N cases": scripts/conformance.sh reads that line
+      # for cases.json alone.
+      ran = length(@pending) - length(@pending_skipped)
+
+      IO.puts(
+        "\npending conformance (cases.pending.json): #{length(@pending)} cases, #{ran} run, " <>
+          "#{length(@pending_skipped)} skipped"
+      )
+    end
+
+    for c <- @pending do
+      missing = c["requires"] -- @supported
+
+      if missing != [] do
+        @tag skip: "pending case requires #{Enum.join(missing, ", ")}"
+      end
+
+      @tag case: c
+      test "pending case #{c["id"]}", %{case: c, tmp_dir: root} do
+        run(c, root)
+      end
+    end
+  else
+    @tag skip: "#{@pending_path} not found"
+    test "pending conformance cases", do: :ok
   end
 
   defp run(c, root) do
