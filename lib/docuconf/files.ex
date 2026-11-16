@@ -47,6 +47,7 @@ defmodule Docuconf.Files do
       {:error, :enoent} ->
         if f.required,
           do: report.(:file_missing, "#{dir} not found#{root_hint(opts)}#{required_when(f)}")
+
         nil
 
       {:error, reason} ->
@@ -101,6 +102,7 @@ defmodule Docuconf.Files do
       {:error, :enoent} ->
         if f.required,
           do: report.(:file_missing, "#{path} not found#{root_hint(opts)}#{required_when(f)}")
+
         :absent
 
       {:error, reason} ->

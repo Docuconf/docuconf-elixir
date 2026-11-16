@@ -235,6 +235,7 @@ defmodule Docuconf.ConditionalTest do
 
     test "a role's own inputs are required", %{tmp_dir: root} do
       result = load(@roles, %{"DOCUCONF_ROLE" => "web", "DATABASE_URL" => "db"}, root)
+
       assert [{"ALLOWED_ORIGINS", :missing_required, _}, {"robots", :file_missing, _}] =
                violations(result)
     end
